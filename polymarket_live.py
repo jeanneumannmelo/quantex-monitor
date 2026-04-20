@@ -754,6 +754,46 @@ def execute_exit_trade(condition_id: str):
         print(f"  [PM] Erro no exit: {e}")
 
 
+# ── Zombie cleanup ───────────────────────────────────────────────────────────
+
+ZOMBIE_MAX_DAYS  = 5      # posição aberta há mais de X dias
+ZOMBIE_MAX_PRICE = 0.08   # preço atual abaixo de X¢ (indo para 0)
+
+def _cleanup_zombie_positions():
+    """
+    Fecha posições "zumbi": abertas há mais de ZOMBIE_MAX_DAYS E com preço
+    atual < ZOMBIE_MAX_PRICE E o trader copiado já não tem mais essa posição.
+    """
+    now = time.time()
+    with pm_lock:
+        open_pos = dict(pm_state["positions"])
+        all_trader_ids = set()
+        for ids in pm_state["wallet_positions"].values():
+            all_trader_ids |= ids
+
+    for cid, pos in open_pos.items():
+        age_days = (now - pos.get("ts", now)) / 86400
+        if age_days < ZOMBIE_MAX_DAYS:
+            continue
+        if cid in all_trader_ids:
+            continue  # trader ainda segura — não tocar
+
+        # Busca preço atual via live_positions
+        cur_price = None
+        with pm_lock:
+            for lp in pm_state["live_positions"]:
+                if lp.get("condition_id") == cid:
+                    cur_price = lp.get("cur_price")
+                    break
+
+        if cur_price is None or cur_price > ZOMBIE_MAX_PRICE:
+            continue
+
+        print(f"  [PM] 🧟 Zombie detectado: {pos['question'][:40]} "
+              f"(age={age_days:.1f}d, price={cur_price:.3f}) → fechando")
+        execute_exit_trade(cid)
+
+
 # ── Monitor por wallet ────────────────────────────────────────────────────────
 
 def _check_wallet(wallet: dict):
@@ -832,12 +872,18 @@ def _poller():
 
     last_lb_refresh = time.time()
 
+    last_zombie_check = time.time()
+
     while True:
         try:
             time.sleep(30)
             _refresh_balance()
             _refresh_live_positions()
             _emit_state()
+
+            if time.time() - last_zombie_check >= 3600:  # a cada 1h
+                _cleanup_zombie_positions()
+                last_zombie_check = time.time()
 
             if time.time() - last_lb_refresh >= LEADERBOARD_REFRESH:
                 fetch_top_wallets()
