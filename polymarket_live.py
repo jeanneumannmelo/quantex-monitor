@@ -544,21 +544,34 @@ def _analyze_wallets(leaderboard_limit=300, n=TOP_WALLETS_N):
     """
     import requests as _req
     _L(f"[LB] Analisando wallets (buscando top {leaderboard_limit})...")
+    lb = []
+    page_size = 50
+    offset = 0
     try:
-        r = _req.get(
-            f"{DATA_API}/v1/leaderboard",
-            params={"category": "OVERALL", "timePeriod": "MONTH",
-                    "orderBy": "PNL", "limit": leaderboard_limit},
-            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
-            timeout=15,
-        )
-        r.raise_for_status()
-        lb = r.json()
-        if not isinstance(lb, list):
+        while len(lb) < leaderboard_limit:
+            r = _req.get(
+                f"{DATA_API}/v1/leaderboard",
+                params={"category": "OVERALL", "timePeriod": "MONTH",
+                        "orderBy": "PNL", "limit": page_size, "offset": offset},
+                headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+                timeout=15,
+            )
+            r.raise_for_status()
+            page = r.json()
+            if not isinstance(page, list) or not page:
+                break
+            lb.extend(page)
+            if len(page) < page_size:
+                break
+            offset += page_size
+            time.sleep(0.2)
+        if not lb:
             return []
     except Exception as e:
         _log.warning(f"[LB] Leaderboard erro: {e}")
         return []
+    lb = lb[:leaderboard_limit]
+    _L(f"[LB] {len(lb)} entradas carregadas do leaderboard")
 
     qualified = []
     for i, w in enumerate(lb, 1):
