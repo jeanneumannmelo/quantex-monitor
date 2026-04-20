@@ -27,13 +27,14 @@ def kelly_fraction(p_win: float, b_net_odds: float, kelly_frac: float = 0.25) ->
 
 
 def position_size(
-    balance:         float,
-    p_win:           float,
-    entry_price:     float,
-    avg_exit_price:  float,
-    kelly_frac:      float = 0.25,
-    min_size:        float = 5.0,
-    max_size:        float = 30.0,
+    balance:          float,
+    p_win:            float,
+    entry_price:      float,
+    avg_exit_price:   float,
+    kelly_frac:       float = 0.25,
+    min_size:         float = 5.0,
+    max_size:         float = 30.0,
+    skip_negative_ev: bool  = True,
 ) -> float:
     """
     Retorna o valor em USDC a alocar em um trade.
@@ -43,19 +44,17 @@ def position_size(
       entry=0.55, exit=0.85  →  b=0.545 → f*=53.6% → 25%K=13.4% → $24.02
       entry=0.70, exit=0.90  →  b=0.286 → f*=18.2% → 25%K=4.6%  → $8.19
 
-    balance:         saldo atual em USDC
-    p_win:           win rate histórico do wallet (0–1)
-    entry_price:     preço de entrada no mercado (0–1)
-    avg_exit_price:  preço médio de saída esperado (0–1)
-    kelly_frac:      fração do Kelly (padrão 0.25)
-    min_size:        mínimo em USDC (cobre taxas)
-    max_size:        máximo em USDC (proteção de concentração)
+    Retorna 0.0 quando EV é negativo (skip_negative_ev=True) ou Kelly é zero.
     """
-    if entry_price <= 0 or avg_exit_price <= entry_price or balance <= 0:
-        return min_size
+    if entry_price <= 0 or balance <= 0:
+        return 0.0
+    if avg_exit_price <= entry_price:
+        return 0.0 if skip_negative_ev else min_size
     b_net = (avg_exit_price - entry_price) / entry_price
     frac  = kelly_fraction(p_win, b_net, kelly_frac)
-    raw   = balance * frac
+    if frac <= 0:
+        return 0.0
+    raw = balance * frac
     return round(max(min_size, min(max_size, raw)), 2)
 
 

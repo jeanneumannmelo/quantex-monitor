@@ -24,26 +24,65 @@ DATA_API   = "https://data-api.polymarket.com"
 GAMMA_API  = "https://gamma-api.polymarket.com"
 
 CHAIN_ID             = 137
-POLL_INTERVAL        = 5       # segundos por wallet-thread
-LEADERBOARD_REFRESH  = 300     # refresh lista de wallets
-MIN_PRICE            = 0.04
-MAX_PRICE            = 0.92
+POLL_INTERVAL        = 5
+LEADERBOARD_REFRESH  = 300
+
+CONFIG_PATH = "/Users/mac/matrix_dashboard/config.json"
+
+def _load_pm_cfg() -> dict:
+    try:
+        with open(CONFIG_PATH) as f:
+            return json.load(f).get("strategies", {}).get("pm", {})
+    except Exception:
+        return {}
+
+# Globals inicializados por _init_constants() — não editar manualmente
+MIN_PRICE            = 0.05
+MAX_PRICE            = 0.90
 TOP_WALLETS_N        = 10
-MIN_WIN_RATE         = 62.0
-MIN_EXIT_QUALITY     = 55.0
-MIN_TRADES_WALLET    = 8
-BLOCKED_SPORTS       = {"Tennis"}   # Tennis: jogos resolvem em horas
-MIN_HOURS_TO_RESOLVE = 4.0          # ignora mercados que resolvem em < 4h
-
-# Kelly / cash management
-KELLY_FRACTION       = 0.50
+MIN_WIN_RATE         = 65.0
+MIN_EXIT_QUALITY     = 60.0
+MIN_TRADES_WALLET    = 10
+BLOCKED_SPORTS       = {"Tennis"}
+MIN_HOURS_TO_RESOLVE = 6.0
+KELLY_FRACTION       = 0.25
 MIN_ALLOC            = 5.0
-MAX_ALLOC_PCT        = 0.10   # teto dinâmico: 10% do saldo atual
+MAX_ALLOC_PCT        = 0.08
+CIRCUIT_BREAKER_DD   = 0.15
+MAX_DAILY_LOSS_PCT   = 0.08
+MAX_CONSECUTIVE_LOSS = 3
+ZOMBIE_MAX_DAYS      = 7
+ZOMBIE_MAX_PRICE     = 0.06
+WR_BIAS_DISCOUNT     = 0.85
+PM_ENABLED           = True
 
-# Circuit breakers
-CIRCUIT_BREAKER_DD   = 0.20   # pausa se saldo cair 20% do pico
-MAX_DAILY_LOSS_PCT   = 0.10   # para o dia após -10%
-MAX_CONSECUTIVE_LOSS = 4      # cooldown após 4 perdas seguidas
+def _init_constants():
+    global MIN_PRICE, MAX_PRICE, TOP_WALLETS_N, MIN_WIN_RATE, MIN_EXIT_QUALITY
+    global MIN_TRADES_WALLET, BLOCKED_SPORTS, MIN_HOURS_TO_RESOLVE, KELLY_FRACTION
+    global MIN_ALLOC, MAX_ALLOC_PCT, CIRCUIT_BREAKER_DD, MAX_DAILY_LOSS_PCT
+    global MAX_CONSECUTIVE_LOSS, ZOMBIE_MAX_DAYS, ZOMBIE_MAX_PRICE
+    global WR_BIAS_DISCOUNT, PM_ENABLED
+    c = _load_pm_cfg()
+    MIN_PRICE             = c.get("min_price",             0.05)
+    MAX_PRICE             = c.get("max_price",             0.90)
+    TOP_WALLETS_N         = c.get("top_wallets_n",         10)
+    MIN_WIN_RATE          = c.get("min_win_rate",          65.0)
+    MIN_EXIT_QUALITY      = c.get("min_exit_quality",      60.0)
+    MIN_TRADES_WALLET     = c.get("min_trades_wallet",     10)
+    BLOCKED_SPORTS        = set(c.get("blocked_sports",    ["Tennis"]))
+    MIN_HOURS_TO_RESOLVE  = c.get("min_hours_to_resolve",  6.0)
+    KELLY_FRACTION        = c.get("kelly_fraction",        0.25)
+    MIN_ALLOC             = c.get("min_alloc",             5.0)
+    MAX_ALLOC_PCT         = c.get("max_alloc_pct",         0.08)
+    CIRCUIT_BREAKER_DD    = c.get("circuit_breaker_dd",    0.15)
+    MAX_DAILY_LOSS_PCT    = c.get("max_daily_loss_pct",    0.08)
+    MAX_CONSECUTIVE_LOSS  = c.get("max_consecutive_loss",  3)
+    ZOMBIE_MAX_DAYS       = c.get("zombie_max_days",       7)
+    ZOMBIE_MAX_PRICE      = c.get("zombie_max_price",      0.06)
+    WR_BIAS_DISCOUNT      = c.get("wr_bias_discount",      0.85)
+    PM_ENABLED            = c.get("enabled",               True)
+
+_init_constants()
 
 # ── Estado global ─────────────────────────────────────────────────────────────
 pm_state = {
@@ -66,6 +105,7 @@ pm_state = {
     "losses":             0,
     "copies":             0,
     "known_positions":    set(),
+    "wallet_entry_cache": {},       # condition_id -> wallet's avg entry price
     # circuit breakers
     "peak_balance":       0.0,
     "session_start":      0.0,
@@ -266,6 +306,36 @@ def _refresh_balance():
             pass
 
 
+# ── Risco por posição ─────────────────────────────────────────────────────────
+
+def _compute_pm_risk(pos: dict, balance: float) -> dict:
+    """Calcula score de risco 0-100 para uma posição PM."""
+    cur = pos.get("cur_price", 0.5)
+    price_risk = 1.0 if (cur < 0.15 or cur > 0.85) else (
+        0.5 if (cur < 0.25 or cur > 0.75) else 0.0
+    )
+
+    time_risk = 0.5
+    end_str = pos.get("end_date", "")
+    try:
+        from datetime import datetime, timezone
+        end_dt = datetime.fromisoformat(end_str + "T00:00:00+00:00")
+        hours_left = (end_dt - datetime.now(timezone.utc)).total_seconds() / 3600
+        time_risk = max(0.0, min(1.0, 1.0 - hours_left / 24.0))
+    except Exception:
+        pass
+
+    invested = pos.get("invested", 0)
+    size_risk = min(1.0, (invested / max(balance, 1)) * 3)
+
+    pnl_pct = pos.get("pnl_pct", 0) / 100.0
+    pnl_risk = max(0.0, min(1.0, -pnl_pct / 0.20)) if pnl_pct < 0 else 0.0
+
+    score = round((0.30 * price_risk + 0.25 * time_risk + 0.20 * size_risk + 0.25 * pnl_risk) * 100, 1)
+    level = "HIGH" if score > 66 else "MEDIUM" if score > 33 else "LOW"
+    return {"risk_score": score, "risk_level": level}
+
+
 # ── Posições ao vivo com PnL ──────────────────────────────────────────────────
 
 def _refresh_live_positions():
@@ -307,7 +377,7 @@ def _refresh_live_positions():
             pnl_pct = (cur - entry) / entry * 100 if entry > 0 else 0
             unrealized += cash_pnl
 
-            positions.append({
+            pos_data = {
                 "title":       title[:55],
                 "outcome":     outcome,
                 "entry":       round(entry, 3),
@@ -318,7 +388,11 @@ def _refresh_live_positions():
                 "pnl_pct":     round(pnl_pct, 1),
                 "end_date":    end_date[:10] if end_date else "—",
                 "condition_id": p.get("conditionId", ""),
-            })
+            }
+            risk = _compute_pm_risk(pos_data, pm_state.get("usdc_balance", 1))
+            pos_data["risk_score"] = risk["risk_score"]
+            pos_data["risk_level"] = risk["risk_level"]
+            positions.append(pos_data)
 
         with pm_lock:
             pm_state["live_positions"] = positions
@@ -622,25 +696,58 @@ def execute_copy_trade(condition_id: str, token_id: str, side: str, price: float
     if not _check_circuit_breakers():
         return False
 
+    # Gate: limite de posições simultâneas (exclui posições mortas com preço < 0.06)
+    with pm_lock:
+        live = [p for p in pm_state["live_positions"] if p.get("cur_price", 1) > ZOMBIE_MAX_PRICE]
+        max_pos = _load_pm_cfg().get("max_positions", 5)
+    if len(live) >= max_pos:
+        print(f"  [PM] Skip max_positions ({len(live)}/{max_pos}): {title[:35]}")
+        return False
+
     try:
         from py_clob_client.clob_types import MarketOrderArgs, OrderType
 
         with pm_lock:
-            bal = pm_state["usdc_balance"]
-            wr  = pm_state["wallet_wr_cache"].get(wallet_username, 0.65)
-            eq  = pm_state["wallet_eq_cache"].get(wallet_username, 60.0)
+            bal      = pm_state["usdc_balance"]
+            raw_wr   = pm_state["wallet_wr_cache"].get(wallet_username, 0.65)
+            eq       = pm_state["wallet_eq_cache"].get(wallet_username, 60.0)
+            w_entry  = pm_state["wallet_entry_cache"].get(condition_id, price)
 
-        avg_exit  = expected_exit_price(price, eq)
-        max_alloc = bal * MAX_ALLOC_PCT
-        alloc = position_size(
-            balance        = bal,
-            p_win          = wr,
-            entry_price    = price,
-            avg_exit_price = avg_exit,
-            kelly_frac     = KELLY_FRACTION,
-            min_size       = MIN_ALLOC,
-            max_size       = max_alloc,
+        # Fix F: desconto de survivorship bias no win rate reportado
+        wr = raw_wr * WR_BIAS_DISCOUNT
+
+        avg_exit = expected_exit_price(price, eq)
+
+        # Fix B: checar slippage — quanto do movimento o trader já capturou
+        total_move     = max(avg_exit - w_entry, 1e-6)
+        remaining_move = max(avg_exit - price, 0.0)
+        slippage_ratio = 1.0 - (remaining_move / total_move)
+
+        if slippage_ratio > 0.30:
+            print(f"  [PM] Skip slippage: {slippage_ratio*100:.0f}% do movimento já foi em {title[:35]}")
+            return False
+
+        slippage_factor = remaining_move / total_move
+
+        max_alloc  = bal * MAX_ALLOC_PCT
+        skip_ev    = _load_pm_cfg().get("skip_negative_ev", True)
+        full_alloc = position_size(
+            balance          = bal,
+            p_win            = wr,
+            entry_price      = price,
+            avg_exit_price   = avg_exit,
+            kelly_frac       = KELLY_FRACTION,
+            min_size         = MIN_ALLOC,
+            max_size         = max_alloc,
+            skip_negative_ev = skip_ev,
         )
+
+        # Fix A gate: Kelly retornou 0 → EV negativo, não entrar
+        if full_alloc == 0.0:
+            print(f"  [PM] Skip EV negativo: {title[:40]}")
+            return False
+
+        alloc = max(MIN_ALLOC, round(full_alloc * slippage_factor, 2))
 
         if alloc > bal:
             print("  [PM] Saldo insuficiente para trade")
@@ -673,7 +780,7 @@ def execute_copy_trade(condition_id: str, token_id: str, side: str, price: float
                     "ts":             time.time(),
                 }
             _emit_feed(f"COPY {side}", title, price, alloc)
-            print(f"  [PM] ✓ {side} {title[:40]} ${alloc:.2f} (Kelly, WR={wr:.0%}, EQ={eq:.0f}%)")
+            print(f"  [PM] ✓ {side} {title[:40]} ${alloc:.2f} (Kelly, WR={wr:.0%} adj={WR_BIAS_DISCOUNT:.0%}, EQ={eq:.0f}%, slip={slippage_ratio*100:.0f}%)")
             return True
         else:
             print(f"  [PM] Ordem rejeitada: {resp}")
@@ -756,47 +863,53 @@ def execute_exit_trade(condition_id: str):
 
 # ── Zombie cleanup ───────────────────────────────────────────────────────────
 
-ZOMBIE_MAX_DAYS  = 5      # posição aberta há mais de X dias
-ZOMBIE_MAX_PRICE = 0.08   # preço atual abaixo de X¢ (indo para 0)
-
 def _cleanup_zombie_positions():
     """
-    Fecha posições "zumbi": abertas há mais de ZOMBIE_MAX_DAYS E com preço
-    atual < ZOMBIE_MAX_PRICE E o trader copiado já não tem mais essa posição.
+    Fecha posições zumbi em dois passes:
+
+    FAST: posições com preço < ZOMBIE_MAX_PRICE (mercado resolveu contra),
+          independente da idade — age em horas, não dias.
+
+    SLOW: posições antigas (> ZOMBIE_MAX_DAYS) com preço baixo e trader saiu.
     """
     now = time.time()
     with pm_lock:
         open_pos = dict(pm_state["positions"])
+        live_pos = list(pm_state["live_positions"])
         all_trader_ids = set()
         for ids in pm_state["wallet_positions"].values():
             all_trader_ids |= ids
 
+    # Mapa condition_id → cur_price das posições ao vivo
+    live_prices = {lp.get("condition_id"): lp.get("cur_price") for lp in live_pos}
+
     for cid, pos in open_pos.items():
-        age_days = (now - pos.get("ts", now)) / 86400
-        if age_days < ZOMBIE_MAX_DAYS:
-            continue
-        if cid in all_trader_ids:
-            continue  # trader ainda segura — não tocar
-
-        # Busca preço atual via live_positions
-        cur_price = None
-        with pm_lock:
-            for lp in pm_state["live_positions"]:
-                if lp.get("condition_id") == cid:
-                    cur_price = lp.get("cur_price")
-                    break
-
-        if cur_price is None or cur_price > ZOMBIE_MAX_PRICE:
+        cur_price = live_prices.get(cid)
+        if cur_price is None:
             continue
 
-        print(f"  [PM] 🧟 Zombie detectado: {pos['question'][:40]} "
-              f"(age={age_days:.1f}d, price={cur_price:.3f}) → fechando")
-        execute_exit_trade(cid)
+        age_hours = (now - pos.get("ts", now)) / 3600
+
+        # FAST: mercado resolveu contra (preço ~0) — fechar imediatamente após 2h
+        if cur_price <= ZOMBIE_MAX_PRICE and age_hours >= 2.0:
+            print(f"  [PM] 🧟 Fast-zombie: {pos['question'][:40]} "
+                  f"(age={age_hours:.1f}h, price={cur_price:.4f}) → fechando")
+            execute_exit_trade(cid)
+            continue
+
+        # SLOW: posição velha, trader saiu, preço baixo
+        age_days = age_hours / 24
+        if age_days >= ZOMBIE_MAX_DAYS and cid not in all_trader_ids and cur_price <= ZOMBIE_MAX_PRICE:
+            print(f"  [PM] 🧟 Slow-zombie: {pos['question'][:40]} "
+                  f"(age={age_days:.1f}d, price={cur_price:.3f}) → fechando")
+            execute_exit_trade(cid)
 
 
 # ── Monitor por wallet ────────────────────────────────────────────────────────
 
 def _check_wallet(wallet: dict):
+    if not PM_ENABLED:
+        return
     positions = fetch_wallet_positions(wallet["address"])
     addr      = wallet["address"]
 
@@ -843,8 +956,11 @@ def _check_wallet(wallet: dict):
             already = cid in pm_state["known_positions"]
 
         if not already:
+            # Fix B: cache da entrada real do trader para cálculo de slippage
+            wallet_avg_entry = float(pos.get("avgPrice") or pos.get("price", price))
             with pm_lock:
                 pm_state["known_positions"].add(cid)
+                pm_state["wallet_entry_cache"][cid] = wallet_avg_entry
             _emit_feed(f"📡 {wallet['username']}", title, price, 0)
             execute_copy_trade(cid, token, side, price, title, wallet["username"])
 
@@ -877,11 +993,12 @@ def _poller():
     while True:
         try:
             time.sleep(30)
+            _init_constants()  # hot-reload de parâmetros do config
             _refresh_balance()
             _refresh_live_positions()
             _emit_state()
 
-            if time.time() - last_zombie_check >= 3600:  # a cada 1h
+            if time.time() - last_zombie_check >= 1800:  # a cada 30min
                 _cleanup_zombie_positions()
                 last_zombie_check = time.time()
 

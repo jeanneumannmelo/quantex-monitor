@@ -272,6 +272,35 @@ html, body {
 .btn-cancel { background: rgba(255,255,255,0.05); color: var(--muted); border: 1px solid rgba(255,255,255,0.07); border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: 'Inter', sans-serif; transition: background 0.15s; }
 .btn-cancel:hover { background: rgba(255,255,255,0.09); }
 
+/* ── Modal wide + tabs ── */
+.modal.wide { width: 680px; max-width: 95vw; }
+.modal-tabs { display: flex; gap: 0; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 20px; }
+.modal-tab-btn { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; padding: 9px 16px 9px 0; margin-right: 12px; cursor: pointer; transition: color 0.15s, border-color 0.15s; font-family: 'Inter', sans-serif; }
+.modal-tab-btn:hover { color: var(--silver); }
+.modal-tab-btn.active { color: var(--white); border-bottom-color: var(--blue); }
+.modal-tab-btn.pm.active { border-bottom-color: var(--purple); }
+.modal-tab-pane { display: none; }
+.modal-tab-pane.active { display: block; }
+.strat-toggle { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); margin-bottom: 14px; }
+.strat-toggle-label { font-size: 12px; font-weight: 600; color: var(--white); }
+.toggle-switch { position: relative; width: 38px; height: 20px; flex-shrink: 0; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: rgba(255,255,255,0.08); border-radius: 20px; cursor: pointer; transition: background 0.2s; border: 1px solid rgba(255,255,255,0.12); }
+.toggle-slider:before { content:""; position: absolute; width: 14px; height: 14px; bottom: 2px; left: 2px; background: rgba(255,255,255,0.5); border-radius: 50%; transition: transform 0.2s; }
+.toggle-switch input:checked + .toggle-slider { background: var(--blue); }
+.toggle-switch input:checked + .toggle-slider:before { transform: translateX(18px); background: #fff; }
+.param-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.param-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); flex: 0 0 156px; }
+.param-slider { flex: 1; accent-color: var(--blue); cursor: pointer; }
+.param-value { font-family: var(--mono); font-size: 11px; color: var(--white); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 5px; padding: 3px 8px; min-width: 52px; text-align: right; }
+
+/* ── Risk badges ── */
+.risk-badge { display: inline-flex; align-items: center; gap: 3px; border-radius: 20px; padding: 2px 7px; font-size: 9px; font-weight: 700; border: 1px solid; cursor: default; white-space: nowrap; }
+.risk-badge.LOW    { background: rgba(16,185,129,0.1);  border-color: rgba(16,185,129,0.25); color: var(--green); }
+.risk-badge.MEDIUM { background: rgba(245,158,11,0.1);  border-color: rgba(245,158,11,0.25); color: var(--yellow); }
+.risk-badge.HIGH   { background: rgba(239,68,68,0.1);   border-color: rgba(239,68,68,0.3);  color: var(--red); animation: riskPulse 1.8s ease-in-out infinite; }
+@keyframes riskPulse { 0%,100%{opacity:1} 50%{opacity:0.55} }
+
 /* ── PM status pill ── */
 .pm-status-pill { font-size: 9px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid; }
 .pm-status-pill.obs  { color: var(--muted); border-color: rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); }
@@ -591,14 +620,14 @@ html, body {
         <div class="card-body" style="overflow:hidden;position:relative;">
           <div class="tab-pane active" id="tab-hl-pos" style="height:100%;overflow-y:auto;">
             <table class="pos-table">
-              <thead><tr><th>Ativo</th><th>Side</th><th>Entry</th><th>Atual</th><th>PnL</th><th></th></tr></thead>
-              <tbody id="pos-tbody"><tr><td colspan="6" class="empty-msg">Sem posições HL abertas</td></tr></tbody>
+              <thead><tr><th>Ativo</th><th>Side</th><th>Entry</th><th>Atual</th><th>PnL</th><th>Risco</th><th></th></tr></thead>
+              <tbody id="pos-tbody"><tr><td colspan="7" class="empty-msg">Sem posições HL abertas</td></tr></tbody>
             </table>
           </div>
           <div class="tab-pane" id="tab-pm-pos" style="height:100%;overflow-y:auto;">
             <table class="pos-table" style="font-size:11px;">
-              <thead><tr><th>Mercado</th><th>Outcome</th><th>Alocado</th><th>Entry</th><th>Atual</th><th>PnL $</th><th>%</th><th>Resolve</th></tr></thead>
-              <tbody id="pm-pos-tbody"><tr><td colspan="8" class="empty-msg">Sem posições PM abertas</td></tr></tbody>
+              <thead><tr><th>Mercado</th><th>Outcome</th><th>Alocado</th><th>Entry</th><th>Atual</th><th>PnL $</th><th>%</th><th>Resolve</th><th>Risco</th></tr></thead>
+              <tbody id="pm-pos-tbody"><tr><td colspan="9" class="empty-msg">Sem posições PM abertas</td></tr></tbody>
             </table>
           </div>
           <div class="tab-pane" id="tab-closed" style="height:100%;overflow-y:auto;">
@@ -613,36 +642,74 @@ html, body {
 
 <!-- Settings Modal -->
 <div class="modal-overlay" id="settings-modal">
-  <div class="modal">
-    <div class="modal-title">Configurações</div>
-    <div class="modal-sub">Credenciais das plataformas. Sem chave = paper/observação.</div>
+  <div class="modal wide">
+    <div class="modal-title">Configurações da Estratégia</div>
+    <div class="modal-sub">Parâmetros aplicados sem reiniciar o servidor.</div>
 
-    <div class="modal-section">Hyperliquid</div>
-    <div class="field-group">
-      <label class="field-label">Endereço da Carteira HL</label>
-      <input class="field-input" id="cfg-address" type="text" placeholder="0x…" autocomplete="off"/>
-    </div>
-    <div class="field-group">
-      <label class="field-label">Chave Privada HL</label>
-      <input class="field-input" id="cfg-privkey" type="password" placeholder="••••••••••••••••" autocomplete="new-password"/>
+    <div class="modal-tabs">
+      <button class="modal-tab-btn active" onclick="switchModalTab('creds',this)">Credenciais</button>
+      <button class="modal-tab-btn"        onclick="switchModalTab('hl',this)">HL Strategy</button>
+      <button class="modal-tab-btn pm"     onclick="switchModalTab('pm',this)">PM Strategy</button>
+      <button class="modal-tab-btn"        onclick="switchModalTab('risk',this)">Risk Controls</button>
     </div>
 
-    <div class="modal-section">Polymarket</div>
-    <div class="field-group">
-      <label class="field-label pm">Chave Privada PM (execução real de ordens)</label>
-      <input class="field-input pm" id="cfg-pm-privkey" type="password" placeholder="••••••••••••••••" autocomplete="new-password" style="border-color:rgba(139,92,246,0.25);"/>
-      <div class="field-hint">Chave privada da sua wallet EVM (MetaMask → Export Private Key). Fica apenas no seu servidor local. Deixe vazio para modo observação.</div>
+    <!-- Credenciais -->
+    <div class="modal-tab-pane active" id="modal-tab-creds">
+      <div class="modal-section" style="margin-top:0;border-top:none;">Hyperliquid</div>
+      <div class="field-group"><label class="field-label">Endereço HL</label><input class="field-input" id="cfg-address" type="text" placeholder="0x…" autocomplete="off"/></div>
+      <div class="field-group"><label class="field-label">Chave Privada HL</label><input class="field-input" id="cfg-privkey" type="password" placeholder="••••" autocomplete="new-password"/></div>
+      <div class="modal-section">Polymarket</div>
+      <div class="field-group"><label class="field-label pm">Chave Privada PM</label><input class="field-input pm" id="cfg-pm-privkey" type="password" placeholder="••••" autocomplete="new-password"/><div class="field-hint">Deixe vazio para modo observação.</div></div>
+      <div class="modal-section">Geral</div>
+      <div class="field-group"><label class="field-label">Capital Inicial (USD)</label><input class="field-input" id="cfg-balance" type="number" step="0.01" placeholder="2000.00"/></div>
     </div>
 
-    <div class="modal-section">Geral</div>
-    <div class="field-group">
-      <label class="field-label">Capital Inicial HL (USD)</label>
-      <input class="field-input" id="cfg-balance" type="number" step="0.01" placeholder="2008.00"/>
+    <!-- HL Strategy -->
+    <div class="modal-tab-pane" id="modal-tab-hl">
+      <div class="strat-toggle"><span class="strat-toggle-label">Hyperliquid Copy Trading</span><label class="toggle-switch"><input type="checkbox" id="hl-enabled" checked/><span class="toggle-slider"></span></label></div>
+      <div class="param-row"><span class="param-label">Stop Loss %</span><input type="range" class="param-slider" id="hl-stop-loss" min="1" max="15" step="0.5" value="6" oninput="document.getElementById('hl-stop-loss-v').textContent='-'+this.value+'%'"/><span class="param-value" id="hl-stop-loss-v">-6%</span></div>
+      <div class="param-row"><span class="param-label">Max Hold (horas)</span><input type="range" class="param-slider" id="hl-max-hold" min="6" max="168" step="6" value="48" oninput="document.getElementById('hl-max-hold-v').textContent=this.value+'h'"/><span class="param-value" id="hl-max-hold-v">48h</span></div>
+      <div class="param-row"><span class="param-label">Trailing Lock %</span><input type="range" class="param-slider" id="hl-trail-lock" min="4" max="30" step="1" value="12" oninput="document.getElementById('hl-trail-lock-v').textContent='+'+this.value+'%'"/><span class="param-value" id="hl-trail-lock-v">+12%</span></div>
+      <div class="param-row"><span class="param-label">Trailing Floor %</span><input type="range" class="param-slider" id="hl-trail-floor" min="0.5" max="5" step="0.5" value="2" oninput="document.getElementById('hl-trail-floor-v').textContent=this.value+'%'"/><span class="param-value" id="hl-trail-floor-v">2%</span></div>
+      <div class="param-row"><span class="param-label">Kelly Fraction</span><input type="range" class="param-slider" id="hl-kelly" min="10" max="100" step="5" value="25" oninput="document.getElementById('hl-kelly-v').textContent=(this.value/100).toFixed(2)"/><span class="param-value" id="hl-kelly-v">0.25</span></div>
+      <div class="param-row"><span class="param-label">Max Pos Size %</span><input type="range" class="param-slider" id="hl-max-pos-pct" min="2" max="20" step="1" value="8" oninput="document.getElementById('hl-max-pos-pct-v').textContent=this.value+'%'"/><span class="param-value" id="hl-max-pos-pct-v">8%</span></div>
+      <div class="param-row"><span class="param-label">Max Posições</span><input type="range" class="param-slider" id="hl-max-positions" min="1" max="20" step="1" value="10" oninput="document.getElementById('hl-max-positions-v').textContent=this.value"/><span class="param-value" id="hl-max-positions-v">10</span></div>
+      <div class="param-row"><span class="param-label">Min WR Trader %</span><input type="range" class="param-slider" id="hl-min-wr" min="50" max="100" step="5" value="85" oninput="document.getElementById('hl-min-wr-v').textContent=this.value+'%'"/><span class="param-value" id="hl-min-wr-v">85%</span></div>
+      <div class="param-row"><span class="param-label">Min Convergência</span><input type="range" class="param-slider" id="hl-min-conv" min="1" max="5" step="1" value="2" oninput="document.getElementById('hl-min-conv-v').textContent=this.value"/><span class="param-value" id="hl-min-conv-v">2</span></div>
+    </div>
+
+    <!-- PM Strategy -->
+    <div class="modal-tab-pane" id="modal-tab-pm">
+      <div class="strat-toggle"><span class="strat-toggle-label">Polymarket Copy Trading</span><label class="toggle-switch"><input type="checkbox" id="pm-enabled" checked/><span class="toggle-slider"></span></label></div>
+      <div class="param-row"><span class="param-label">Kelly Fraction</span><input type="range" class="param-slider" id="pm-kelly" min="10" max="100" step="5" value="25" oninput="document.getElementById('pm-kelly-v').textContent=(this.value/100).toFixed(2)"/><span class="param-value" id="pm-kelly-v">0.25</span></div>
+      <div class="param-row"><span class="param-label">Min Win Rate %</span><input type="range" class="param-slider" id="pm-min-wr" min="50" max="90" step="5" value="65" oninput="document.getElementById('pm-min-wr-v').textContent=this.value+'%'"/><span class="param-value" id="pm-min-wr-v">65%</span></div>
+      <div class="param-row"><span class="param-label">Min Exit Quality %</span><input type="range" class="param-slider" id="pm-min-eq" min="40" max="90" step="5" value="60" oninput="document.getElementById('pm-min-eq-v').textContent=this.value+'%'"/><span class="param-value" id="pm-min-eq-v">60%</span></div>
+      <div class="param-row"><span class="param-label">Min Price</span><input type="range" class="param-slider" id="pm-min-price" min="2" max="20" step="1" value="5" oninput="document.getElementById('pm-min-price-v').textContent=(this.value/100).toFixed(2)"/><span class="param-value" id="pm-min-price-v">0.05</span></div>
+      <div class="param-row"><span class="param-label">Max Price</span><input type="range" class="param-slider" id="pm-max-price" min="70" max="99" step="1" value="90" oninput="document.getElementById('pm-max-price-v').textContent=(this.value/100).toFixed(2)"/><span class="param-value" id="pm-max-price-v">0.90</span></div>
+      <div class="param-row"><span class="param-label">Max Alocação %</span><input type="range" class="param-slider" id="pm-max-alloc" min="2" max="20" step="1" value="8" oninput="document.getElementById('pm-max-alloc-v').textContent=this.value+'%'"/><span class="param-value" id="pm-max-alloc-v">8%</span></div>
+      <div class="param-row"><span class="param-label">WR Bias Discount</span><input type="range" class="param-slider" id="pm-wr-discount" min="60" max="100" step="5" value="85" oninput="document.getElementById('pm-wr-discount-v').textContent=(this.value/100).toFixed(2)+'×'"/><span class="param-value" id="pm-wr-discount-v">0.85×</span></div>
+      <div class="param-row"><span class="param-label">Top Wallets N</span><input type="range" class="param-slider" id="pm-top-wallets" min="5" max="30" step="1" value="10" oninput="document.getElementById('pm-top-wallets-v').textContent=this.value"/><span class="param-value" id="pm-top-wallets-v">10</span></div>
+      <div class="param-row"><span class="param-label">Min Resolve (h)</span><input type="range" class="param-slider" id="pm-min-resolve" min="1" max="24" step="1" value="6" oninput="document.getElementById('pm-min-resolve-v').textContent=this.value+'h'"/><span class="param-value" id="pm-min-resolve-v">6h</span></div>
+      <div class="param-row"><span class="param-label">Max Posições PM</span><input type="range" class="param-slider" id="pm-max-positions" min="1" max="15" step="1" value="5" oninput="document.getElementById('pm-max-positions-v').textContent=this.value"/><span class="param-value" id="pm-max-positions-v">5</span></div>
+      <div class="param-row"><span class="param-label">Skip Neg EV</span><label class="toggle-switch" style="flex:0 0 auto;"><input type="checkbox" id="pm-skip-neg-ev" checked/><span class="toggle-slider"></span></label><span class="param-value" style="color:var(--muted);font-size:9px;background:none;border:none;">Recomendado</span></div>
+    </div>
+
+    <!-- Risk Controls -->
+    <div class="modal-tab-pane" id="modal-tab-risk">
+      <div class="modal-section" style="margin-top:0;border-top:none;">Hyperliquid</div>
+      <div class="param-row"><span class="param-label">Circuit Breaker %</span><input type="range" class="param-slider" id="hl-cb-drop" min="5" max="30" step="1" value="12" oninput="document.getElementById('hl-cb-drop-v').textContent='-'+this.value+'%'"/><span class="param-value" id="hl-cb-drop-v">-12%</span></div>
+      <div class="param-row"><span class="param-label">Loss Cooldown (min)</span><input type="range" class="param-slider" id="hl-cooldown" min="5" max="120" step="5" value="30" oninput="document.getElementById('hl-cooldown-v').textContent=this.value+'min'"/><span class="param-value" id="hl-cooldown-v">30min</span></div>
+      <div class="modal-section">Polymarket</div>
+      <div class="param-row"><span class="param-label">Circuit Breaker DD %</span><input type="range" class="param-slider" id="pm-cb-dd" min="5" max="40" step="1" value="15" oninput="document.getElementById('pm-cb-dd-v').textContent=this.value+'%'"/><span class="param-value" id="pm-cb-dd-v">15%</span></div>
+      <div class="param-row"><span class="param-label">Max Daily Loss %</span><input type="range" class="param-slider" id="pm-daily-loss" min="2" max="20" step="1" value="8" oninput="document.getElementById('pm-daily-loss-v').textContent=this.value+'%'"/><span class="param-value" id="pm-daily-loss-v">8%</span></div>
+      <div class="param-row"><span class="param-label">Max Consec. Losses</span><input type="range" class="param-slider" id="pm-max-consec" min="1" max="10" step="1" value="3" oninput="document.getElementById('pm-max-consec-v').textContent=this.value"/><span class="param-value" id="pm-max-consec-v">3</span></div>
+      <div class="param-row"><span class="param-label">Zombie Days</span><input type="range" class="param-slider" id="pm-zombie-days" min="1" max="30" step="1" value="7" oninput="document.getElementById('pm-zombie-days-v').textContent=this.value+'d'"/><span class="param-value" id="pm-zombie-days-v">7d</span></div>
+      <div class="param-row"><span class="param-label">Zombie Price Max</span><input type="range" class="param-slider" id="pm-zombie-price" min="1" max="20" step="1" value="6" oninput="document.getElementById('pm-zombie-price-v').textContent=(this.value/100).toFixed(2)"/><span class="param-value" id="pm-zombie-price-v">0.06</span></div>
     </div>
 
     <div class="modal-actions">
       <button class="btn-cancel" onclick="closeSettings()">Cancelar</button>
-      <button class="btn-save" onclick="saveSettings()">Salvar e Conectar</button>
+      <button class="btn-save" onclick="saveSettings()">Aplicar e Salvar</button>
     </div>
   </div>
 </div>
@@ -798,27 +865,111 @@ function closeAll(){
 }
 
 /* ── Settings ── */
+function switchModalTab(name, btn) {
+  document.querySelectorAll('.modal-tab-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.modal-tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('modal-tab-'+name).classList.add('active');
+  btn.classList.add('active');
+}
+
+function _populateSliders(cfg) {
+  const s  = cfg.strategies || {};
+  const hl = s.hl || {};
+  const pm = s.pm || {};
+  function ss(id, val, dispId, fmt) {
+    const el=document.getElementById(id); const d=document.getElementById(dispId);
+    if(!el||val===undefined) return; el.value=val; if(d&&fmt)d.textContent=fmt(val);
+  }
+  const hlEn=document.getElementById('hl-enabled'); if(hlEn) hlEn.checked=hl.enabled!==false;
+  ss('hl-stop-loss',    Math.abs((hl.stop_loss_pct||0.06)*100), 'hl-stop-loss-v',  v=>'-'+v+'%');
+  ss('hl-max-hold',     hl.max_hold_hours||48,   'hl-max-hold-v',   v=>v+'h');
+  ss('hl-trail-lock',   (hl.trailing_lock_pct||0.12)*100, 'hl-trail-lock-v', v=>'+'+v+'%');
+  ss('hl-trail-floor',  (hl.trailing_floor_offset||0.02)*100, 'hl-trail-floor-v', v=>v+'%');
+  ss('hl-kelly',        (hl.kelly_fraction||0.25)*100, 'hl-kelly-v', v=>(v/100).toFixed(2));
+  ss('hl-max-pos-pct',  (hl.max_pos_pct||0.08)*100, 'hl-max-pos-pct-v', v=>v+'%');
+  ss('hl-max-positions',hl.max_positions||10, 'hl-max-positions-v', v=>v);
+  ss('hl-min-wr',       hl.min_copy_wr||85, 'hl-min-wr-v', v=>v+'%');
+  ss('hl-min-conv',     hl.min_convergence||2, 'hl-min-conv-v', v=>v);
+  ss('hl-cb-drop',      Math.abs((hl.circuit_breaker_drop||0.12)*100), 'hl-cb-drop-v', v=>'-'+v+'%');
+  ss('hl-cooldown',     (hl.loss_cooldown_secs||1800)/60, 'hl-cooldown-v', v=>v+'min');
+  const pmEn=document.getElementById('pm-enabled'); if(pmEn) pmEn.checked=pm.enabled!==false;
+  ss('pm-kelly',        (pm.kelly_fraction||0.25)*100, 'pm-kelly-v', v=>(v/100).toFixed(2));
+  ss('pm-min-wr',       pm.min_win_rate||65, 'pm-min-wr-v', v=>v+'%');
+  ss('pm-min-eq',       pm.min_exit_quality||60, 'pm-min-eq-v', v=>v+'%');
+  ss('pm-min-price',    (pm.min_price||0.05)*100, 'pm-min-price-v', v=>(v/100).toFixed(2));
+  ss('pm-max-price',    (pm.max_price||0.90)*100, 'pm-max-price-v', v=>(v/100).toFixed(2));
+  ss('pm-max-alloc',    (pm.max_alloc_pct||0.08)*100, 'pm-max-alloc-v', v=>v+'%');
+  ss('pm-wr-discount',  (pm.wr_bias_discount||0.85)*100, 'pm-wr-discount-v', v=>(v/100).toFixed(2)+'×');
+  ss('pm-top-wallets',  pm.top_wallets_n||10, 'pm-top-wallets-v', v=>v);
+  ss('pm-max-positions', pm.max_positions||5, 'pm-max-positions-v', v=>v);
+  ss('pm-min-resolve',  pm.min_hours_to_resolve||6, 'pm-min-resolve-v', v=>v+'h');
+  const skipEl=document.getElementById('pm-skip-neg-ev'); if(skipEl) skipEl.checked=pm.skip_negative_ev!==false;
+  ss('pm-cb-dd',        (pm.circuit_breaker_dd||0.15)*100, 'pm-cb-dd-v', v=>v+'%');
+  ss('pm-daily-loss',   (pm.max_daily_loss_pct||0.08)*100, 'pm-daily-loss-v', v=>v+'%');
+  ss('pm-max-consec',   pm.max_consecutive_loss||3, 'pm-max-consec-v', v=>v);
+  ss('pm-zombie-days',  pm.zombie_max_days||7, 'pm-zombie-days-v', v=>v+'d');
+  ss('pm-zombie-price', (pm.zombie_max_price||0.06)*100, 'pm-zombie-price-v', v=>(v/100).toFixed(2));
+}
+
 function openSettings(){
   fetch('/api/config').then(r=>r.json()).then(cfg=>{
     document.getElementById('cfg-address').value = cfg.hl_address||'';
-    document.getElementById('cfg-balance').value  = cfg.starting_balance||2008;
+    document.getElementById('cfg-balance').value  = cfg.starting_balance||2000;
     document.getElementById('cfg-privkey').value  = '';
     document.getElementById('cfg-pm-privkey').value = '';
+    _populateSliders(cfg);
     document.getElementById('settings-modal').classList.add('open');
   }).catch(()=>document.getElementById('settings-modal').classList.add('open'));
 }
 function closeSettings(){ document.getElementById('settings-modal').classList.remove('open'); }
 function saveSettings(){
+  function sv(id,d){ const el=document.getElementById(id); return el?parseFloat(el.value):d; }
+  function sb(id,d){ const el=document.getElementById(id); return el?el.checked:d; }
   const pmKey = document.getElementById('cfg-pm-privkey').value.trim();
   const payload = {
     hl_address:       document.getElementById('cfg-address').value.trim(),
     hl_private_key:   document.getElementById('cfg-privkey').value,
-    starting_balance: parseFloat(document.getElementById('cfg-balance').value)||2008,
+    starting_balance: parseFloat(document.getElementById('cfg-balance').value)||2000,
+    strategies: {
+      hl: {
+        enabled:               sb('hl-enabled',true),
+        stop_loss_pct:         -(sv('hl-stop-loss',6)/100),
+        max_hold_hours:        sv('hl-max-hold',48),
+        trailing_lock_pct:     sv('hl-trail-lock',12)/100,
+        trailing_floor_offset: sv('hl-trail-floor',2)/100,
+        kelly_fraction:        sv('hl-kelly',25)/100,
+        max_pos_pct:           sv('hl-max-pos-pct',8)/100,
+        max_positions:         sv('hl-max-positions',10),
+        min_copy_wr:           sv('hl-min-wr',85),
+        min_convergence:       sv('hl-min-conv',2),
+        circuit_breaker_drop:  -(sv('hl-cb-drop',12)/100),
+        loss_cooldown_secs:    sv('hl-cooldown',30)*60,
+      },
+      pm: {
+        enabled:               sb('pm-enabled',true),
+        kelly_fraction:        sv('pm-kelly',25)/100,
+        min_win_rate:          sv('pm-min-wr',65),
+        min_exit_quality:      sv('pm-min-eq',60),
+        min_price:             sv('pm-min-price',5)/100,
+        max_price:             sv('pm-max-price',90)/100,
+        max_alloc_pct:         sv('pm-max-alloc',8)/100,
+        wr_bias_discount:      sv('pm-wr-discount',85)/100,
+        top_wallets_n:         sv('pm-top-wallets',10),
+        min_hours_to_resolve:  sv('pm-min-resolve',6),
+        max_positions:         sv('pm-max-positions',5),
+        skip_negative_ev:      sb('pm-skip-neg-ev',true),
+        circuit_breaker_dd:    sv('pm-cb-dd',15)/100,
+        max_daily_loss_pct:    sv('pm-daily-loss',8)/100,
+        max_consecutive_loss:  sv('pm-max-consec',3),
+        zombie_max_days:       sv('pm-zombie-days',7),
+        zombie_max_price:      sv('pm-zombie-price',6)/100,
+      }
+    }
   };
   if (pmKey) payload.pm_private_key = pmKey;
   fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
     .then(r=>r.json()).then(d=>{
-      if (!d.ok) return;
+      if (!d.ok) { alert('Erro ao salvar config'); return; }
       if (pmKey) {
         document.getElementById('h-pm-dot').className='ws-dot warn';
         fetch('/api/pm/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({private_key:pmKey})})
@@ -826,12 +977,10 @@ function saveSettings(){
             if (d.connected) {
               document.getElementById('h-pm-dot').className='ws-dot ok';
               ['p-pm-status','ps-pm-status'].forEach(id=>{ const el=document.getElementById(id); if(el){el.textContent='Live';el.className='pm-status-pill live';} });
-              alert('✓ Polymarket conectado: '+d.state.address.slice(0,10)+'…');
             } else {
               document.getElementById('h-pm-dot').className='ws-dot warn';
-              alert('⚠ Modo observação — verifique a chave ou instale: pip install py-clob-client');
             }
-          }).catch(()=>{document.getElementById('h-pm-dot').className='ws-dot err';});
+          }).catch(()=>{ document.getElementById('h-pm-dot').className='ws-dot err'; });
       }
       closeSettings();
     });
@@ -913,12 +1062,15 @@ socket.on('state', (data)=>{
     tbody.innerHTML = data.positions.map(p=>{
       const pp=(p.pnl/p.size_usd*100).toFixed(1);
       const pc=p.pnl>=0?'style="color:var(--green);font-weight:700"':'style="color:var(--red);font-weight:700"';
+      const risk=p.risk_level||'LOW';
+      const rs=p.risk_score!==undefined?p.risk_score.toFixed(0):'—';
       return`<tr>
         <td>${p.coin}</td>
         <td><span class="badge badge-${p.side==='LONG'?'long':'short'}">${p.side}</span></td>
         <td>$${parseFloat(p.entry_px).toLocaleString('en-US',{maximumFractionDigits:2})}</td>
         <td>$${parseFloat(p.cur_px).toLocaleString('en-US',{maximumFractionDigits:2})}</td>
         <td ${pc}>${p.pnl>=0?'+':''}${pp}%</td>
+        <td><span class="risk-badge ${risk}" title="Score: ${rs}">● ${risk}</span></td>
         <td><button class="close-btn" onclick="closePosition('${p.coin}:${p.side}')">×</button></td>
       </tr>`;
     }).join('');
@@ -1033,6 +1185,8 @@ socket.on('pm_state', (data)=>{
       const pctCol  = p.pnl_pct > 0 ? 'var(--green)' : p.pnl_pct < 0 ? 'var(--red)' : 'var(--muted)';
       const priceDir = p.cur_price > p.entry ? '▲' : p.cur_price < p.entry ? '▼' : '—';
       const priceArrowCol = p.cur_price > p.entry ? 'var(--green)' : p.cur_price < p.entry ? 'var(--red)' : 'var(--muted)';
+      const risk=p.risk_level||'LOW';
+      const rs=p.risk_score!==undefined?p.risk_score.toFixed(0):'—';
       return `<tr>
         <td title="${p.title}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">${p.title}</td>
         <td><span class="badge" style="background:rgba(139,92,246,0.12);border-color:rgba(139,92,246,0.25);color:var(--purple);font-size:9px;">${p.outcome}</span></td>
@@ -1042,10 +1196,11 @@ socket.on('pm_state', (data)=>{
         <td style="color:${pnlCol};font-weight:700;">${pnlS}$${Math.abs(p.pnl).toFixed(2)}</td>
         <td style="color:${pctCol};font-size:10px;">${p.pnl_pct > 0 ? '+' : ''}${p.pnl_pct}%</td>
         <td style="color:var(--muted);font-size:9px;">${p.end_date}</td>
+        <td><span class="risk-badge ${risk}" title="Score: ${rs}">● ${risk}</span></td>
       </tr>`;
     }).join('');
   } else {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">Sem posições PM abertas</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-msg">Sem posições PM abertas</td></tr>';
   }
 
   if (data.pnl_history) updateChart(null, data.pnl_history);

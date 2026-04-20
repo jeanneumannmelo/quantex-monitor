@@ -23,21 +23,22 @@ import polymarket_live as pm_live
 WS_URL        = "wss://api.hyperliquid.xyz/ws"
 REST_URL      = "https://api.hyperliquid.xyz/info"
 STATS_URL     = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
-STARTING_BAL  = 2008.0   # R$10.000 @ 4.98 BRL/USD
-MAX_POS_PCT   = 0.08
-MAX_POSITIONS = 12        # cobre 100% do capital em posições simultâneas
-MIN_COPY_WR   = 85  # só copia traders com win rate >= 85%
+PREFIX_BLACKLIST       = ("xyz:", "flx:")
+CIRCUIT_BREAKER_RESUME = -0.08
 
-# ── Risk Management ───────────────────────────────────────────────────────────
-STOP_LOSS_PCT          = -0.06    # -6% unrealized → fecha automático
-PREFIX_BLACKLIST        = ("xyz:", "flx:")  # bloqueia commodities exóticos
-MIN_CONVERGENCE         = 2       # mínimo 2 traders na mesma direção em 120s
-MAX_HOLD_HOURS          = 24      # força fechamento após 24h
-CIRCUIT_BREAKER_DROP    = -0.12   # -12% equity pausa novas cópias
-CIRCUIT_BREAKER_RESUME  = -0.08   # retoma acima de -8%
-TRAILING_LOCK_PCT       = 0.08    # +8% lucro ativa trailing
-TRAILING_FLOOR_OFFSET   = 0.007   # floor perto do breakeven (0.7% acima da entrada LONG)
-LOSS_COOLDOWN_SECS      = 1800    # 30 min cooldown por coin:side após loss
+# Defaults — sobrescritos por reload_hl_params() ao iniciar
+STARTING_BAL          = 2000.0
+MAX_POS_PCT           = 0.08
+MAX_POSITIONS         = 10
+MIN_COPY_WR           = 85
+STOP_LOSS_PCT         = -0.06
+MIN_CONVERGENCE       = 2
+MAX_HOLD_HOURS        = 48
+CIRCUIT_BREAKER_DROP  = -0.12
+TRAILING_LOCK_PCT     = 0.12
+TRAILING_FLOOR_OFFSET = 0.02
+LOSS_COOLDOWN_SECS    = 1800
+HL_ENABLED            = True
 
 TOP_TRADERS = [
     {"addr": "0xa5b0edf6b55128e0ddae8e51ac538c3188401d41", "label": "ETH-KING",   "pnl": 19_756_455, "wr": 100},
@@ -99,6 +100,8 @@ def fetch_fills(addr):
 def try_copy_trade(fill, trader):
     direction = fill.get("dir", "")
     if not direction.startswith("Open"):
+        return
+    if not HL_ENABLED:
         return
     if trader.get("wr", 0) < MIN_COPY_WR:
         return
@@ -227,6 +230,27 @@ def process_fill(fill, addr):
 
 # ── Broadcast state loop ──────────────────────────────────────────────────────
 
+def _compute_hl_risk(pos: dict, cur_px: float, now_sec: float) -> dict:
+    """Calcula score de risco 0-100 para uma posição HL."""
+    entry = pos["entry_px"]
+    side  = pos["side"]
+    size  = pos["size_usd"]
+
+    pnl_pct = (cur_px - entry) / entry if side == "LONG" else (entry - cur_px) / entry
+    stop    = STOP_LOSS_PCT  # negativo, ex: -0.06
+    pnl_risk = max(0.0, min(1.0, pnl_pct / stop)) if pnl_pct < 0 else 0.0
+
+    open_ts   = pos.get("open_ts", now_sec)
+    hold_hrs  = (now_sec - open_ts) / 3600
+    hold_risk = min(1.0, hold_hrs / max(MAX_HOLD_HOURS, 1))
+
+    size_risk = min(1.0, size / max(STARTING_BAL, 1) * 5)
+
+    score = round((0.45 * pnl_risk + 0.35 * hold_risk + 0.20 * size_risk) * 100, 1)
+    level = "HIGH" if score > 66 else "MEDIUM" if score > 33 else "LOW"
+    return {"risk_score": score, "risk_level": level}
+
+
 def build_state():
     with lock:
         bal      = state["balance"]
@@ -243,12 +267,15 @@ def build_state():
     # Unrealized PnL
     unrealized = 0.0
     pos_list   = []
+    now_sec    = time.time()
     for pk, pos in positions.items():
         cur = last_px.get(pos["coin"], pos["entry_px"])
         pnl = pos["size_usd"] * (cur - pos["entry_px"]) / pos["entry_px"] if pos["side"] == "LONG" else \
               pos["size_usd"] * (pos["entry_px"] - cur) / pos["entry_px"]
         unrealized += pnl
-        pos_list.append({**pos, "cur_px": cur, "pnl": round(pnl, 4)})
+        risk = _compute_hl_risk(pos, cur, now_sec)
+        pos_list.append({**pos, "cur_px": cur, "pnl": round(pnl, 4),
+                         "risk_score": risk["risk_score"], "risk_level": risk["risk_level"]})
 
     # Patterns
     now_ms = time.time() * 1000
@@ -581,6 +608,26 @@ def load_config():
         "pm_private_key": "", "pm_address": "",
     }
 
+def reload_hl_params():
+    global STARTING_BAL, MAX_POS_PCT, MAX_POSITIONS, MIN_COPY_WR
+    global STOP_LOSS_PCT, MIN_CONVERGENCE, MAX_HOLD_HOURS, CIRCUIT_BREAKER_DROP
+    global TRAILING_LOCK_PCT, TRAILING_FLOOR_OFFSET, LOSS_COOLDOWN_SECS, HL_ENABLED
+    c = load_config().get("strategies", {}).get("hl", {})
+    STARTING_BAL          = load_config().get("starting_balance", 2000.0)
+    MAX_POS_PCT           = c.get("max_pos_pct",            0.08)
+    MAX_POSITIONS         = c.get("max_positions",          10)
+    MIN_COPY_WR           = c.get("min_copy_wr",            85)
+    STOP_LOSS_PCT         = c.get("stop_loss_pct",         -0.06)
+    MIN_CONVERGENCE       = c.get("min_convergence",         2)
+    MAX_HOLD_HOURS        = c.get("max_hold_hours",          48)
+    CIRCUIT_BREAKER_DROP  = c.get("circuit_breaker_drop",  -0.12)
+    TRAILING_LOCK_PCT     = c.get("trailing_lock_pct",       0.12)
+    TRAILING_FLOOR_OFFSET = c.get("trailing_floor_offset",   0.02)
+    LOSS_COOLDOWN_SECS    = c.get("loss_cooldown_secs",     1800)
+    HL_ENABLED            = c.get("enabled",                True)
+
+reload_hl_params()
+
 
 @app.route("/api/config", methods=["GET", "POST"])
 def api_config():
@@ -595,8 +642,15 @@ def api_config():
     for k in ("hl_address", "hl_private_key", "starting_balance", "pm_private_key", "pm_address"):
         if k in data:
             cfg[k] = data[k]
+    if "strategies" in data:
+        cfg.setdefault("strategies", {})
+        for strat_key in ("hl", "pm"):
+            if strat_key in data["strategies"]:
+                cfg["strategies"].setdefault(strat_key, {}).update(data["strategies"][strat_key])
     with open(CONFIG_PATH, "w") as f:
         json.dump(cfg, f, indent=2)
+    reload_hl_params()
+    pm_live._init_constants()
     return jsonify({"ok": True})
 
 
@@ -611,6 +665,19 @@ def api_pm_wallets():
     from flask import jsonify
     wallets = pm_live.fetch_top_wallets(20)
     return jsonify(wallets)
+
+
+@app.route("/api/pm/risk")
+def api_pm_risk():
+    from flask import jsonify
+    positions = pm_live.pm_state.get("live_positions", [])
+    return jsonify([{
+        "title":      p.get("title", ""),
+        "risk_score": p.get("risk_score", 0),
+        "risk_level": p.get("risk_level", "LOW"),
+        "pnl_pct":    p.get("pnl_pct", 0),
+        "cur_price":  p.get("cur_price", 0),
+    } for p in positions])
 
 
 @app.route("/api/pm/connect", methods=["POST"])
