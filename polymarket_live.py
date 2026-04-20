@@ -1039,6 +1039,10 @@ def _poller():
             _refresh_balance()
             _refresh_live_positions()
             _emit_state()
+            with pm_lock:
+                n_wallets = len(pm_state.get("tracked_wallets", []))
+                n_pos     = len(pm_state.get("live_positions", []))
+            _L(f"[POLLER] ✓ monitorando {n_wallets} wallets | {n_pos} posições abertas | lb refresh em {max(0, int(LEADERBOARD_REFRESH - (time.time() - last_lb_refresh)))}s")
 
             if time.time() - last_zombie_check >= 1800:  # a cada 30min
                 _cleanup_zombie_positions()
