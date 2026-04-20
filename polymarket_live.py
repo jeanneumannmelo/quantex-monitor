@@ -5,6 +5,7 @@ Requer: eth_account (já instalado), requests
 """
 
 import json
+import os
 import time
 import threading
 import hashlib
