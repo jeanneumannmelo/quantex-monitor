@@ -77,13 +77,28 @@ app = Flask(__name__)
 sio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 
 
+@sio.on("connect")
+def on_connect():
+    log.info(f"[SOCKET] Cliente conectado: {request.sid}")
+
+@sio.on("disconnect")
+def on_disconnect():
+    log.info(f"[SOCKET] Cliente desconectado: {request.sid}")
+
+
 # ── State broadcaster ─────────────────────────────────────────────────────────
+_beat = 0
 def state_broadcaster():
+    global _beat
     while True:
         try:
-            sio.emit("pm_state", pm_live.get_pm_state())
+            state = pm_live.get_pm_state()
+            sio.emit("pm_state", state)
+            _beat += 1
+            if _beat % 60 == 0:  # log a cada 60s
+                log.info(f"[HEARTBEAT] bal=${state.get('balance',0):.2f} pos={len(state.get('live_positions',[]))} copies={state.get('copies',0)}")
         except Exception as e:
-            log.debug(f"state_broadcaster erro: {e}")
+            log.warning(f"[SOCKET] state_broadcaster erro: {e}")
         time.sleep(1)
 
 
