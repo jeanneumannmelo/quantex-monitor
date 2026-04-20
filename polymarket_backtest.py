@@ -20,18 +20,27 @@ import time
 import requests
 from datetime import datetime, timezone
 from collections import defaultdict
+from polymarket_cash import position_size, expected_exit_price, score_wallet
 
 # ── Config ────────────────────────────────────────────────────────────────────
-STARTING_BAL       = 1000.0
-ALLOC_FIXED        = 80.0          # $80 fixo por trade (sem compounding)
+STARTING_BAL       = 2000.0
 TAKER_FEE          = 0.02          # 2% Polymarket taker fee por lado (4% round trip)
 MAX_POSITIONS      = 5
-MIN_TRADES_WALLET  = 5             # mínimo de posições fechadas para ranquear
-TOP_WALLETS        = 15            # quantos wallets copiar
-MIN_EXIT_QUALITY   = 50.0          # só copiar se exit quality histórica >= 50%
-MIN_WIN_RATE       = 55.0          # só copiar wallets com WR >= 55%
-LEADERBOARD_SIZE   = 100           # top N do leaderboard para analisar
-BACKTEST_DAYS      = 90            # janela do backtest em dias
+MIN_TRADES_WALLET  = 6             # mínimo de posições fechadas para ranquear
+TOP_WALLETS        = 20            # quantos wallets copiar
+MIN_EXIT_QUALITY   = 50.0          # exit quality histórica >= 50%
+MIN_WIN_RATE       = 58.0          # win rate >= 58%
+LEADERBOARD_SIZE   = 500           # total de candidatos a analisar (paginado)
+LEADERBOARD_PAGE   = 100           # tamanho de cada página
+BACKTEST_DAYS      = 30            # janela do backtest — últimos 30 dias (mais recente)
+
+# ── Kelly / gestão de caixa ───────────────────────────────────────────────────
+USE_KELLY_SIZING    = True
+KELLY_FRACTION      = 0.50         # half-Kelly
+MAX_ALLOC_PCT       = 0.08         # cap dinâmico: 8% do saldo
+MAX_ALLOC_HARD      = 200.0        # teto absoluto por trade (protege de posições gigantes)
+MIN_ALLOC_PER_TRADE = 5.0
+CIRCUIT_BREAKER_DD  = 0.20         # pausa se cair 20% do pico
 
 HEADERS    = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 DATA_API   = "https://data-api.polymarket.com"
@@ -40,6 +49,16 @@ CRYPTO_ONLY  = False  # False = todos os mercados
 SPORTS_ONLY  = True   # True = exclui cripto, mantém esportes/outros
 
 import re as _re
+
+# Mesmos filtros do live — bloqueia Tennis e jogos individuais (vs. / O/U)
+GAME_BET_RE_BT = _re.compile(
+    r"\bvs\.?\s+\w|O/U\s+\d|over/under|\bpts\b|\bgoals\b|\bscoring\b|\bwill\s+\w+\s+score|\bfirst\s+(goal|basket|td|touchdown)\b",
+    _re.I
+)
+TENNIS_RE_BT = _re.compile(
+    r"\b(atp|wta|tennis|wimbledon|french open|australian open|roland garros|madrid open|rome open|miami open|indian wells|monte carlo|davis cup|fed cup|laver cup|qualifier|qualification)\b",
+    _re.I
+)
 
 # Palavras-chave que precisam de word boundary para evitar falsos positivos
 CRYPTO_KEYWORDS = {
@@ -86,6 +105,51 @@ def get_leaderboard(limit=50):
     )
     r.raise_for_status()
     return r.json()
+
+
+def get_leaderboard_paged(total=500, page_size=100):
+    """
+    Coleta até `total` traders únicos paginando o leaderboard em múltiplos
+    períodos (MONTH, ALL, WEEK) para maximizar a diversidade de candidatos.
+    """
+    seen_addresses = set()
+    all_traders    = []
+
+    periods = ["MONTH", "ALL", "WEEK"]
+
+    for period in periods:
+        if len(all_traders) >= total:
+            break
+        offset = 0
+        while len(all_traders) < total:
+            try:
+                r = requests.get(
+                    f"{DATA_API}/v1/leaderboard",
+                    params={"category": "OVERALL", "timePeriod": period,
+                            "orderBy": "PNL", "limit": page_size, "offset": offset},
+                    headers=HEADERS, timeout=15,
+                )
+                if r.status_code != 200:
+                    break
+                batch = r.json()
+                if not isinstance(batch, list) or not batch:
+                    break
+                added = 0
+                for t in batch:
+                    addr = t.get("proxyWallet", "")
+                    if addr and addr not in seen_addresses:
+                        seen_addresses.add(addr)
+                        all_traders.append(t)
+                        added += 1
+                if added == 0 or len(batch) < page_size:
+                    break
+                offset += page_size
+                time.sleep(0.1)
+            except Exception as e:
+                print(f"  [LB] Erro página offset={offset} period={period}: {e}")
+                break
+
+    return all_traders[:total]
 
 
 def get_closed_positions(address, max_pages=5):
@@ -174,9 +238,9 @@ BACKTEST_CUTOFF = int(_time.time()) - (BACKTEST_DAYS * 86400)
 
 print(f"\n  Polymarket Backtest — Exit Quality Strategy ({BACKTEST_DAYS} dias)")
 print(f"  {datetime.fromtimestamp(BACKTEST_CUTOFF, tz=timezone.utc).strftime('%d/%m/%Y')} → {datetime.now().strftime('%d/%m/%Y')}\n")
-print(f"  Buscando top {LEADERBOARD_SIZE} traders do mês...")
+print(f"  Buscando até {LEADERBOARD_SIZE} traders (paginado, multi-período)...")
 
-traders_raw = get_leaderboard(limit=LEADERBOARD_SIZE)
+traders_raw = get_leaderboard_paged(total=LEADERBOARD_SIZE, page_size=LEADERBOARD_PAGE)
 if not traders_raw:
     print("  Sem dados do leaderboard.")
     exit(1)
@@ -187,10 +251,11 @@ wallet_stats = []
 
 for i, t in enumerate(traders_raw, 1):
     address  = t.get("proxyWallet", "")
-    username = t.get("userName") or (address[:12] + "...") if address else "?"
-    monthly_pnl = t.get("pnl", 0)
+    username = t.get("userName") or t.get("name") or t.get("pseudonym") or (address[:12] if address else "?")
+    monthly_pnl = float(t.get("pnl", 0) or t.get("profit", 0) or 0)
 
-    print(f"  [{i:02d}/{LEADERBOARD_SIZE}] {username[:28]:<28}", end="\r")
+    n_total = len(traders_raw)
+    print(f"  [{i:03d}/{n_total}] {username[:28]:<28}", end="\r")
 
     try:
         positions = get_closed_positions(address)
@@ -242,15 +307,19 @@ for i, t in enumerate(traders_raw, 1):
 print(" " * 60)
 print(f"  {len(wallet_stats)} wallets com dados suficientes.\n")
 
-# Ordenar por exit quality média (descending)
-wallet_stats.sort(key=lambda x: -x["avg_eq"])
+# Ordenar por score composto (EQ 50% + WR 30% + volume 20%)
+wallet_stats.sort(key=lambda x: -score_wallet(x))
 
-# Top wallets acima do threshold
+# Top wallets acima dos thresholds
 top_wallets = [w for w in wallet_stats if w["avg_eq"] >= MIN_EXIT_QUALITY][:TOP_WALLETS]
 
-print(f"  Top {len(top_wallets)} wallets por Exit Quality (mín {MIN_EXIT_QUALITY}%):\n")
+# Mapear win_rate por wallet para uso no Kelly
+wallet_win_rates = {w["username"]: w["win_rate"] / 100.0 for w in top_wallets}
+
+print(f"  Top {len(top_wallets)} wallets por Score Composto (mín EQ {MIN_EXIT_QUALITY}%, WR {MIN_WIN_RATE}%):\n")
 for rank, w in enumerate(top_wallets, 1):
-    print(f"  #{rank:02d}  EQ={w['avg_eq']:5.1f}%  WR={w['win_rate']:5.1f}%  "
+    sc = score_wallet(w)
+    print(f"  #{rank:02d}  Score={sc:.3f}  EQ={w['avg_eq']:5.1f}%  WR={w['win_rate']:5.1f}%  "
           f"Trades={w['n_trades']:3d}  PnL=${w['monthly_pnl']:,.0f}  {w['username']}")
 
 
@@ -269,6 +338,10 @@ for w in top_wallets:
         if CRYPTO_ONLY  and not is_crypto_market(title_pos, slug_pos):
             continue
         if SPORTS_ONLY  and is_crypto_market(title_pos, slug_pos):
+            continue
+        if TENNIS_RE_BT.search(title_pos):
+            continue
+        if GAME_BET_RE_BT.search(title_pos):
             continue
         eq, kind = calc_exit_quality(pos)
         if eq is None or kind not in ("win", "loss"):
@@ -293,11 +366,14 @@ for w in top_wallets:
 all_ops.sort(key=lambda x: x["ts"])
 
 # Simular
-balance      = STARTING_BAL
-open_pos     = {}
-trades       = []
-equity_curve = []
-wins = losses = 0
+balance          = STARTING_BAL
+peak             = STARTING_BAL
+open_pos         = {}
+trades           = []
+equity_curve     = []
+wins = losses    = 0
+n_circuit_breaks = 0
+alloc_list       = []
 
 if all_ops:
     equity_curve.append({"ts": all_ops[0]["ts"] * 1000, "bal": balance})
@@ -311,10 +387,31 @@ for op in all_ops:
     if len(open_pos) >= MAX_POSITIONS:
         continue
 
-    alloc = ALLOC_FIXED
+    # Circuit breaker: pausa se drawdown >= 15%
+    peak = max(peak, balance)
+    if USE_KELLY_SIZING and peak > 0 and (peak - balance) / peak >= CIRCUIT_BREAKER_DD:
+        n_circuit_breaks += 1
+        continue
+
+    if USE_KELLY_SIZING:
+        avg_exit  = expected_exit_price(op["entry"], op["exit_quality"])
+        max_alloc = min(balance * MAX_ALLOC_PCT, MAX_ALLOC_HARD)
+        alloc = position_size(
+            balance        = balance,
+            p_win          = wallet_win_rates.get(op["wallet"], 0.65),
+            entry_price    = op["entry"],
+            avg_exit_price = avg_exit,
+            kelly_frac     = KELLY_FRACTION,
+            min_size       = MIN_ALLOC_PER_TRADE,
+            max_size       = max_alloc,
+        )
+    else:
+        alloc = ALLOC_FIXED
+
     if balance < alloc:
         continue
 
+    alloc_list.append(alloc)
     balance -= alloc
     open_pos[key] = {**op, "alloc": alloc}
     equity_curve.append({"ts": op["ts"] * 1000, "bal": round(balance, 4)})
@@ -475,12 +572,20 @@ result = {
         }
         for w in top_wallets
     ],
+    "avg_position_size":  round(sum(alloc_list) / len(alloc_list), 2) if alloc_list else 0,
+    "size_range":        [round(min(alloc_list), 2), round(max(alloc_list), 2)] if alloc_list else [0, 0],
+    "circuit_breaks":    n_circuit_breaks,
+    "kelly_efficiency":  round(total_pnl / sum(alloc_list), 4) if alloc_list else 0,
     "config": {
         "leaderboard_size":  LEADERBOARD_SIZE,
         "top_wallets":       TOP_WALLETS,
         "min_trades_wallet": MIN_TRADES_WALLET,
         "min_exit_quality":  MIN_EXIT_QUALITY,
-        "alloc_fixed":       ALLOC_FIXED,
+        "use_kelly":         USE_KELLY_SIZING,
+        "kelly_fraction":    KELLY_FRACTION,
+        "max_alloc_pct":     MAX_ALLOC_PCT,
+        "min_alloc":         MIN_ALLOC_PER_TRADE,
+        "circuit_breaker_dd": CIRCUIT_BREAKER_DD,
         "max_positions":     MAX_POSITIONS,
     },
     "monthly":       monthly_data,
@@ -505,6 +610,12 @@ print(f"  Max drawdown:    -{max_dd:.2f}%")
 print(f"  PnL bruto:       +${total_gross:.2f}")
 print(f"  Total taxas:     -${total_fees:.2f}  ({TAKER_FEE*100:.0f}% entrada + {TAKER_FEE*100:.0f}% saída por trade)")
 print(f"  PnL líquido:     +${total_pnl:.2f}  ← número real")
+if USE_KELLY_SIZING:
+    avg_s = result.get("avg_position_size", 0)
+    sr    = result.get("size_range", [0, 0])
+    print(f"  Alocação média:  ${avg_s:.2f}  [${sr[0]:.2f} – ${sr[1]:.2f}]")
+    print(f"  Circuit breaks:  {n_circuit_breaks}")
+    print(f"  Kelly efficiency:{result.get('kelly_efficiency', 0):.4f}  (PnL/$ alocado)")
 if best:
     print(f"  Melhor trade:    {best['title'][:35]}  {'+' if best['pnl']>=0 else ''}{best['pnl']:.4f}")
 if worst:

@@ -397,6 +397,7 @@ def state_broadcaster():
             with lock:
                 state["pnl_history"].append(equity_pnl)
             sio.emit("state", build_state())
+            sio.emit("pm_state", pm_live.get_pm_state())
         except Exception:
             pass
         time.sleep(1)

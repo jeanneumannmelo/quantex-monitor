@@ -547,12 +547,20 @@ html, body {
           </div>
           <div class="stat-block">
             <div class="stat-row">
-              <span class="stat-label">Saldo USDC</span>
+              <span class="stat-label">Equity PM</span>
+              <span class="stat-val" id="p-pm-equity" style="color:var(--purple);font-size:14px;font-weight:700;">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">Saldo Livre</span>
               <span class="stat-val" id="p-pm-balance">—</span>
             </div>
             <div class="stat-row">
-              <span class="stat-label">PnL Real</span>
-              <span class="stat-val" id="p-pm-pnl">—</span>
+              <span class="stat-label">Em Posições</span>
+              <span class="stat-val" id="p-pm-in-pos">—</span>
+            </div>
+            <div class="stat-row">
+              <span class="stat-label">PnL Aberto</span>
+              <span class="stat-val" id="p-pm-unrealized">—</span>
             </div>
             <div class="stat-row">
               <span class="stat-label">Win Rate</span>
@@ -588,9 +596,9 @@ html, body {
             </table>
           </div>
           <div class="tab-pane" id="tab-pm-pos" style="height:100%;overflow-y:auto;">
-            <table class="pos-table">
-              <thead><tr><th>Mercado</th><th>Side</th><th>Entrada</th><th>EQ%</th><th>Wallet</th></tr></thead>
-              <tbody id="pm-pos-tbody"><tr><td colspan="5" class="empty-msg">Sem posições PM abertas</td></tr></tbody>
+            <table class="pos-table" style="font-size:11px;">
+              <thead><tr><th>Mercado</th><th>Outcome</th><th>Alocado</th><th>Entry</th><th>Atual</th><th>PnL $</th><th>%</th><th>Resolve</th></tr></thead>
+              <tbody id="pm-pos-tbody"><tr><td colspan="8" class="empty-msg">Sem posições PM abertas</td></tr></tbody>
             </table>
           </div>
           <div class="tab-pane" id="tab-closed" style="height:100%;overflow-y:auto;">
@@ -832,18 +840,16 @@ document.getElementById('settings-modal').addEventListener('click', e=>{if(e.tar
 
 /* ── Socket.IO ── */
 const socket = io();
-const INITIAL_HL = 2008;
 let pmBalance=0, pmPnl=0, pmWins=0, pmLosses=0;
 
 socket.on('connect',    ()=>{ document.getElementById('h-hl-dot').className='ws-dot ok'; });
 socket.on('disconnect', ()=>{ document.getElementById('h-hl-dot').className='ws-dot err'; });
 
 socket.on('state', (data)=>{
-  const locked   = (data.positions||[]).reduce((s,p)=>s+(p.size_usd||0),0);
-  const hlEquity = data.balance + locked + data.unrealized;
-  const hlPnl    = hlEquity - INITIAL_HL;
-  const totalEquity = hlEquity + pmBalance;
-  const totalPnl    = hlPnl + pmPnl;
+  const locked      = (data.positions||[]).reduce((s,p)=>s+(p.size_usd||0),0);
+  const hlEquity    = data.balance + locked + data.unrealized;
+  const totalEquity = pmBalance;
+  const totalPnl    = pmPnl;
   const col = totalPnl>=0?'var(--green)':'var(--red)';
   const s   = totalPnl>=0?'+':'';
 
@@ -873,8 +879,7 @@ socket.on('state', (data)=>{
   document.getElementById('p-equity').style.color    = totalPnl>=0?'var(--white)':'var(--red)';
   document.getElementById('p-equity-pnl').textContent = s+fmtUSD(Math.abs(totalPnl));
   document.getElementById('p-equity-pnl').style.color = col;
-  const initTotal = INITIAL_HL + (pmBalance > 0 ? pmBalance : 0);
-  document.getElementById('p-return-badge').textContent = initTotal>0 ? s+(totalPnl/initTotal*100).toFixed(2)+'%' : '—';
+  document.getElementById('p-return-badge').textContent = pmBalance>0 ? s+(pmPnl/pmBalance*100).toFixed(2)+'%' : '—';
   document.getElementById('p-return-badge').style.color = col;
   document.getElementById('p-hl-balance').textContent  = fmtUSD(data.balance);
   document.getElementById('p-hl-locked').textContent   = locked>0 ? fmtUSD(locked) : '$0.00';
@@ -883,7 +888,7 @@ socket.on('state', (data)=>{
   document.getElementById('p-hl-wl').textContent       = data.wins+'W / '+data.losses+'L';
 
   // Progress bar
-  const barPct = Math.min(100,Math.max(0,50+totalPnl/Math.max(INITIAL_HL,1)*100));
+  const barPct = Math.min(100,Math.max(0,50+totalPnl/Math.max(pmBalance,1)*100));
   const bar = document.getElementById('p-bar');
   bar.style.width      = barPct+'%';
   bar.style.background = totalPnl>=0 ? 'linear-gradient(90deg,var(--blue),var(--green))' : 'linear-gradient(90deg,var(--red),#f87171)';
@@ -973,28 +978,42 @@ socket.on('pm_feed', (item)=>{
 });
 
 socket.on('pm_state', (data)=>{
-  // Saldo real da conta Polymarket
   if (data.balance !== undefined) pmBalance = data.balance;
-  if (data.wins   !== undefined) pmWins   = data.wins;
-  if (data.losses !== undefined) pmLosses = data.losses;
-  // PnL = balance atual menos o que foi investido (copies × alloc)
-  // O servidor calcula via balance diretamente
-  if (data.pnl !== undefined) pmPnl = data.pnl;
+  if (data.wins    !== undefined) pmWins    = data.wins;
+  if (data.losses  !== undefined) pmLosses  = data.losses;
 
-  const pmWr = (pmWins+pmLosses)>0 ? (pmWins/(pmWins+pmLosses)*100).toFixed(1) : null;
-  const pnlCol = pmPnl>=0?'var(--green)':'var(--red)';
-  const pnlS   = pmPnl>=0?'+':'';
+  const pmEquity   = data.equity   || pmBalance;
+  const pmUnreal   = data.unrealized_pnl || 0;
+  const livePos    = data.live_positions || [];
+  const inPositions = livePos.reduce((s,p) => s + (p.cur_value||0), 0);
 
-  document.getElementById('p-pm-balance').textContent = fmtUSD(pmBalance);
-  document.getElementById('p-pm-pnl').textContent    = pmPnl!==0 ? pnlS+fmtUSD(Math.abs(pmPnl)) : '—';
-  document.getElementById('p-pm-pnl').style.color    = pnlCol;
-  document.getElementById('p-pm-wr').textContent     = pmWr ? pmWr+'%' : '—';
-  document.getElementById('p-pm-wl').textContent     = (pmWins+pmLosses)>0 ? pmWins+'W / '+pmLosses+'L' : '—';
-  document.getElementById('p-pm-trades').textContent = data.copies || 0;
+  // PnL total = equity - saldo inicial (aproximado pelo saldo em pico)
+  pmPnl = pmUnreal;
+
+  const pmWr   = (pmWins+pmLosses)>0 ? (pmWins/(pmWins+pmLosses)*100).toFixed(1) : null;
+  const unrCol = pmUnreal>0?'var(--green)':pmUnreal<0?'var(--red)':'var(--muted)';
+  const unrS   = pmUnreal>=0?'+':'';
+
+  // Portfolio section
+  const eqEl = document.getElementById('p-pm-equity');
+  if (eqEl) { eqEl.textContent = fmtUSD(pmEquity); }
+  document.getElementById('p-pm-balance').textContent  = fmtUSD(pmBalance);
+  const inPosEl = document.getElementById('p-pm-in-pos');
+  if (inPosEl) inPosEl.textContent = inPositions>0 ? fmtUSD(inPositions) : '$0.00';
+  const unrEl = document.getElementById('p-pm-unrealized');
+  if (unrEl) { unrEl.innerHTML = `<span style="color:${unrCol};font-weight:700">${unrS}${fmtUSD(Math.abs(pmUnreal))}</span>`; }
+  document.getElementById('p-pm-wr').textContent       = pmWr ? pmWr+'%' : '—';
+  document.getElementById('p-pm-wl').textContent       = (pmWins+pmLosses)>0 ? pmWins+'W / '+pmLosses+'L' : '—';
+  document.getElementById('p-pm-trades').textContent   = data.copies || 0;
+
+  // Topbar / platform cards
   document.getElementById('ps-pm-wr').textContent    = data.win_rate ? data.win_rate+'%' : '—';
-  document.getElementById('ps-pm-pnl').textContent   = pmPnl!==0 ? pnlS+fmtUSD(Math.abs(pmPnl)) : '—';
-  document.getElementById('ps-pm-pos').textContent   = (data.positions||[]).length;
-  document.getElementById('h-pm-pnl').textContent    = pmPnl!==0 ? pnlS+fmtUSD(Math.abs(pmPnl)) : '—';
+  document.getElementById('ps-pm-pnl').textContent   = unrS+fmtUSD(Math.abs(pmUnreal));
+  document.getElementById('ps-pm-pnl').style.color   = unrCol;
+  document.getElementById('ps-pm-pos').textContent   = livePos.length;
+  document.getElementById('h-pm-pnl').textContent    = unrS+fmtUSD(Math.abs(pmUnreal));
+  document.getElementById('h-pm-pnl').style.color    = unrCol;
+  document.getElementById('h-positions').textContent = livePos.length + ' PM';
 
   if (data.connected) {
     ['p-pm-status','ps-pm-status'].forEach(id=>{ const el=document.getElementById(id); if(el){el.textContent='Live';el.className='pm-status-pill live';} });
@@ -1002,17 +1021,31 @@ socket.on('pm_state', (data)=>{
   }
 
   if (data.tracked_wallets && data.tracked_wallets.length) {
-    renderPMWallets(data.tracked_wallets.map(w=>({name:w.username,eq:w.win_rate||60,wr:w.win_rate||60,pnl:w.pnl||0,tier1:false})));
+    renderPMWallets(data.tracked_wallets.map(w=>({name:w.username,eq:w.avg_eq||60,wr:w.win_rate||60,pnl:w.pnl||0,tier1:false})));
   }
 
-  if (data.positions && data.positions.length) {
-    document.getElementById('pm-pos-tbody').innerHTML = data.positions.map(p=>`<tr>
-      <td title="${p.question}">${(p.question||'').slice(0,30)}</td>
-      <td><span class="badge badge-${p.side==='YES'?'yes':'no'}">${p.side}</span></td>
-      <td>${p.entry_price ? p.entry_price.toFixed(3) : '—'}</td>
-      <td style="color:var(--purple)">—</td>
-      <td style="font-size:10px">${p.wallet||'—'}</td>
-    </tr>`).join('');
+  // Tabela de posições ao vivo
+  const tbody = document.getElementById('pm-pos-tbody');
+  if (livePos.length) {
+    tbody.innerHTML = livePos.map(p => {
+      const pnlCol  = p.pnl > 0 ? 'var(--green)' : p.pnl < 0 ? 'var(--red)' : 'var(--muted)';
+      const pnlS    = p.pnl >= 0 ? '+' : '';
+      const pctCol  = p.pnl_pct > 0 ? 'var(--green)' : p.pnl_pct < 0 ? 'var(--red)' : 'var(--muted)';
+      const priceDir = p.cur_price > p.entry ? '▲' : p.cur_price < p.entry ? '▼' : '—';
+      const priceArrowCol = p.cur_price > p.entry ? 'var(--green)' : p.cur_price < p.entry ? 'var(--red)' : 'var(--muted)';
+      return `<tr>
+        <td title="${p.title}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">${p.title}</td>
+        <td><span class="badge" style="background:rgba(139,92,246,0.12);border-color:rgba(139,92,246,0.25);color:var(--purple);font-size:9px;">${p.outcome}</span></td>
+        <td style="color:var(--muted)">$${p.invested}</td>
+        <td>${p.entry}</td>
+        <td style="color:${priceArrowCol};font-weight:700;">${priceDir} ${p.cur_price}</td>
+        <td style="color:${pnlCol};font-weight:700;">${pnlS}$${Math.abs(p.pnl).toFixed(2)}</td>
+        <td style="color:${pctCol};font-size:10px;">${p.pnl_pct > 0 ? '+' : ''}${p.pnl_pct}%</td>
+        <td style="color:var(--muted);font-size:9px;">${p.end_date}</td>
+      </tr>`;
+    }).join('');
+  } else {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">Sem posições PM abertas</td></tr>';
   }
 
   if (data.pnl_history) updateChart(null, data.pnl_history);
