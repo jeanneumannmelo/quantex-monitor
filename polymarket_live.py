@@ -622,12 +622,8 @@ def _analyze_wallets(leaderboard_limit=80, n=TOP_WALLETS_N):
 
 
 def fetch_top_wallets(n=TOP_WALLETS_N):
-    """Wrapper que usa o cache se disponível, senão chama _analyze_wallets."""
-    with pm_lock:
-        cached = list(pm_state["tracked_wallets"])
-    if cached:
-        return cached
-    return _analyze_wallets(n=n)
+    """Analisa o leaderboard e atualiza tracked_wallets. Sempre re-analisa."""
+    return _analyze_wallets(leaderboard_limit=150, n=n)
 
 
 def fetch_wallet_positions(address: str):
