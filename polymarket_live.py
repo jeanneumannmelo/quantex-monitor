@@ -67,15 +67,16 @@ MAX_DAILY_LOSS_PCT   = 0.08
 MAX_CONSECUTIVE_LOSS = 3
 ZOMBIE_MAX_DAYS      = 7
 ZOMBIE_MAX_PRICE     = 0.06
-WR_BIAS_DISCOUNT     = 0.85
-PM_ENABLED           = True
+WR_BIAS_DISCOUNT          = 0.85
+PM_ENABLED                = True
+MAX_TOTAL_EXPOSURE_PCT    = 0.65
 
 def _init_constants():
     global MIN_PRICE, MAX_PRICE, TOP_WALLETS_N, MIN_WIN_RATE, MIN_EXIT_QUALITY
     global MIN_TRADES_WALLET, BLOCKED_SPORTS, MIN_HOURS_TO_RESOLVE, KELLY_FRACTION
     global MIN_ALLOC, MAX_ALLOC_PCT, CIRCUIT_BREAKER_DD, MAX_DAILY_LOSS_PCT
     global MAX_CONSECUTIVE_LOSS, ZOMBIE_MAX_DAYS, ZOMBIE_MAX_PRICE
-    global WR_BIAS_DISCOUNT, PM_ENABLED
+    global WR_BIAS_DISCOUNT, PM_ENABLED, MAX_TOTAL_EXPOSURE_PCT
     c = _load_pm_cfg()
     MIN_PRICE             = c.get("min_price",             0.05)
     MAX_PRICE             = c.get("max_price",             0.90)
@@ -93,8 +94,9 @@ def _init_constants():
     MAX_CONSECUTIVE_LOSS  = c.get("max_consecutive_loss",  3)
     ZOMBIE_MAX_DAYS       = c.get("zombie_max_days",       7)
     ZOMBIE_MAX_PRICE      = c.get("zombie_max_price",      0.06)
-    WR_BIAS_DISCOUNT      = c.get("wr_bias_discount",      0.85)
-    PM_ENABLED            = c.get("enabled",               True)
+    WR_BIAS_DISCOUNT          = c.get("wr_bias_discount",          0.85)
+    PM_ENABLED                = c.get("enabled",                   True)
+    MAX_TOTAL_EXPOSURE_PCT    = c.get("max_total_exposure_pct",    0.65)
 
 _init_constants()
 
@@ -735,14 +737,6 @@ def execute_copy_trade(condition_id: str, token_id: str, side: str, price: float
     if not _check_circuit_breakers():
         return False
 
-    # Gate: limite de posições simultâneas (exclui posições mortas com preço < 0.06)
-    with pm_lock:
-        live = [p for p in pm_state["live_positions"] if p.get("cur_price", 1) > ZOMBIE_MAX_PRICE]
-        max_pos = _load_pm_cfg().get("max_positions", 5)
-    if len(live) >= max_pos:
-        _L(f"[GATE] max_positions ({len(live)}/{max_pos}) — skip: {title[:45]}")
-        return False
-
     try:
         from py_clob_client.clob_types import MarketOrderArgs, OrderType
 
@@ -790,6 +784,21 @@ def execute_copy_trade(condition_id: str, token_id: str, side: str, price: float
 
         if alloc > bal:
             _L(f"[SKIP] Saldo insuficiente (alloc=${alloc:.2f} > bal=${bal:.2f})")
+            return False
+
+        # Gate de exposição: só conta posições que o BOT copiou (não as manuais do usuário)
+        with pm_lock:
+            bot_pos        = [p for p in pm_state["live_positions"]
+                              if p.get("condition_id") in pm_state["positions"]
+                              and p.get("cur_price", 1) > ZOMBIE_MAX_PRICE]
+            total_invested = sum(p.get("invested", 0) for p in bot_pos)
+        max_exposure = bal * MAX_TOTAL_EXPOSURE_PCT
+        hard_cap     = _load_pm_cfg().get("max_positions_hard_cap", 15)
+        if len(bot_pos) >= hard_cap:
+            _L(f"[GATE] hard_cap ({len(bot_pos)}/{hard_cap}) — skip: {title[:45]}")
+            return False
+        if total_invested + alloc > max_exposure:
+            _L(f"[GATE] exposure ${total_invested+alloc:.0f}/${max_exposure:.0f} ({total_invested/bal*100:.0f}% usado) — skip: {title[:45]}")
             return False
 
         client = _get_clob_client()
@@ -941,6 +950,21 @@ def _cleanup_zombie_positions():
             _L(f"[ZOMBIE] Slow: age={age_days:.1f}d price={cur_price:.3f} → {pos['question'][:45]}")
             execute_exit_trade(cid)
 
+    # RESOLVED: posições com end_date já passado há mais de 24h (mercado encerrado)
+    for lp in live_pos:
+        cid      = lp.get("condition_id", "")
+        end_date = lp.get("end_date", "")
+        if not cid or not end_date or end_date == "—":
+            continue
+        try:
+            end_ts = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
+        except Exception:
+            continue
+        age_past_end_hours = (now - end_ts) / 3600
+        if age_past_end_hours >= 24:
+            _L(f"[ZOMBIE] Resolvido: end={end_date} passado {age_past_end_hours:.0f}h → {lp.get('title','')[:45]}")
+            execute_exit_trade(cid)
+
 
 # ── Monitor por wallet ────────────────────────────────────────────────────────
 
@@ -1036,9 +1060,16 @@ def _poller():
             _refresh_live_positions()
             _emit_state()
             with pm_lock:
-                n_wallets = len(pm_state.get("tracked_wallets", []))
-                n_pos     = len(pm_state.get("live_positions", []))
-            _L(f"[POLLER] ✓ monitorando {n_wallets} wallets | {n_pos} posições abertas | lb refresh em {max(0, int(LEADERBOARD_REFRESH - (time.time() - last_lb_refresh)))}s")
+                n_wallets    = len(pm_state.get("tracked_wallets", []))
+                n_pos        = len(pm_state.get("live_positions", []))
+                bal          = pm_state.get("usdc_balance", 0)
+                bot_pos      = [p for p in pm_state["live_positions"]
+                                if p.get("condition_id") in pm_state["positions"]]
+                invested_bot = sum(p.get("invested", 0) for p in bot_pos)
+            exposure_pct = (invested_bot / bal * 100) if bal > 0 else 0
+            _L(f"[POLLER] ✓ {n_wallets} wallets | {n_pos} pos total ({len(bot_pos)} bot) | "
+               f"${invested_bot:.0f} investido ({exposure_pct:.0f}%) | "
+               f"lb em {max(0, int(LEADERBOARD_REFRESH - (time.time() - last_lb_refresh)))}s")
 
             if time.time() - last_zombie_check >= 1800:  # a cada 30min
                 _cleanup_zombie_positions()
