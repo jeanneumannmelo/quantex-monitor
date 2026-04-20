@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<title>BACKTEST — MATRIX TRADER</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+  :root { --gx:#00ff41; --g3:#00aa00; --g2:#003300; --g1:#001100; --red:#ff2222; --ylw:#ffcc00; --cyn:#00ffff; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#000; color:var(--gx); font-family:'Share Tech Mono',monospace; font-size:13px; padding:20px; }
+
+  #rain-canvas { position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; opacity:0.05; z-index:0; }
+  .content { position:relative; z-index:1; max-width:1400px; margin:0 auto; }
+
+  h1 { font-family:'Orbitron',monospace; font-size:22px; font-weight:900; color:var(--gx);
+       text-shadow:0 0 12px var(--gx); letter-spacing:4px; text-align:center; margin-bottom:6px; }
+  .subtitle { text-align:center; color:var(--g3); font-size:11px; letter-spacing:2px; margin-bottom:24px; }
+
+  .kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:10px; margin-bottom:24px; }
+  .kpi {
+    background:rgba(0,10,0,0.9); border:1px solid var(--g2); border-radius:4px;
+    padding:14px 12px; text-align:center;
+    transition: border-color .3s;
+  }
+  .kpi:hover { border-color:var(--gx); }
+  .kpi-label { color:var(--g3); font-size:10px; letter-spacing:2px; margin-bottom:6px; }
+  .kpi-val { font-family:'Orbitron',monospace; font-size:18px; font-weight:700; }
+  .kpi-val.pos { color:#00ff88; text-shadow:0 0 8px #00ff88; }
+  .kpi-val.neg { color:var(--red); text-shadow:0 0 8px var(--red); }
+  .kpi-val.neu { color:#fff; }
+  .kpi-val.ylw { color:var(--ylw); }
+
+  .panels { display:grid; grid-template-columns:2fr 1fr; gap:14px; margin-bottom:24px; }
+  .panel { background:rgba(0,10,0,0.9); border:1px solid var(--g2); border-radius:4px; overflow:hidden; }
+  .panel:hover { border-color:var(--g3); }
+  .panel-title { background:linear-gradient(90deg,#001a00,#000a00); border-bottom:1px solid var(--g2);
+                  padding:8px 14px; font-family:'Orbitron',monospace; font-size:10px; font-weight:700;
+                  color:var(--gx); letter-spacing:2px; }
+  .panel-body { padding:14px; }
+
+  canvas { width:100% !important; }
+
+  table { width:100%; border-collapse:collapse; font-size:11px; }
+  th { color:var(--g3); text-align:left; padding:5px 8px; border-bottom:1px solid var(--g2); letter-spacing:1px; font-size:10px; }
+  td { padding:5px 8px; border-bottom:1px solid #001200; }
+  tr:hover td { background:rgba(0,255,65,.04); }
+  .badge-long  { background:rgba(0,255,65,.15); color:var(--gx); padding:1px 6px; border-radius:2px; }
+  .badge-short { background:rgba(255,34,34,.15); color:var(--red); padding:1px 6px; border-radius:2px; }
+  .pos  { color:#00ff88; font-weight:bold; }
+  .neg  { color:var(--red); font-weight:bold; }
+  .dim  { color:var(--g3); }
+
+  .note { background:rgba(255,204,0,.06); border:1px solid rgba(255,204,0,.3); border-radius:4px;
+           padding:12px 16px; margin-bottom:18px; color:var(--ylw); font-size:11px; line-height:1.7; }
+  .note strong { color:#fff; }
+
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .back-link { display:inline-block; margin-bottom:20px; color:var(--g3); text-decoration:none; font-size:11px; letter-spacing:1px; }
+  .back-link:hover { color:var(--gx); }
+</style>
+</head>
+<body>
+<canvas id="rain-canvas"></canvas>
+<div class="content">
+  <a class="back-link" href="/">← VOLTAR AO DASHBOARD AO VIVO</a>
+  <h1>▓ BACKTEST — SIMULAÇÃO HISTÓRICA ▓</h1>
+  <div class="subtitle" id="subtitle">CARREGANDO...</div>
+
+  <div class="note" id="note-box" style="display:none">
+    <strong>⚠ Limitação de dados:</strong> A API do Hyperliquid retorna os últimos 2.000 fills por trader.
+    Traders com alta frequência (ex: ETH-KING) têm histórico truncado — alguns pares abrir/fechar
+    ficam sem correspondência. O resultado abaixo reflete os trades que puderam ser completamente rastreados.
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-title">▶ CURVA DE EQUITY — EVOLUÇÃO DO SALDO</div>
+      <div class="panel-body" style="height:280px"><canvas id="equity-chart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">▶ PnL POR TRADER</div>
+      <div class="panel-body" style="height:280px"><canvas id="trader-chart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="two-col" style="margin-bottom:14px">
+    <div class="panel">
+      <div class="panel-title">▶ TRADES FECHADOS</div>
+      <div class="panel-body" style="padding:0; max-height:320px; overflow-y:auto;">
+        <table id="trades-table">
+          <thead><tr><th>DATA</th><th>COIN</th><th>SIDE</th><th>ENTRY</th><th>EXIT</th><th>HOLD</th><th>PnL</th><th>PnL%</th><th>TRADER</th><th>SALDO</th></tr></thead>
+          <tbody id="trades-body"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">▶ POSIÇÕES AINDA ABERTAS (sem close no histórico)</div>
+      <div class="panel-body" style="padding:0; max-height:320px; overflow-y:auto;">
+        <table id="open-table">
+          <thead><tr><th>COIN</th><th>SIDE</th><th>ENTRY</th><th>TRADER</th><th>HOLD (h)</th><th>ALOCADO</th></tr></thead>
+          <tbody id="open-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Matrix rain
+const canvas = document.getElementById('rain-canvas');
+const ctx = canvas.getContext('2d');
+const CHARS = 'ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾃﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍｦｲｸｺｿﾁﾄﾉﾌﾔﾖﾙﾚﾛﾝ0123456789';
+let cols, drops;
+function initRain() { canvas.width=window.innerWidth; canvas.height=window.innerHeight; cols=Math.floor(canvas.width/16); drops=Array(cols).fill(1); }
+initRain(); window.addEventListener('resize', initRain);
+function drawRain() {
+  ctx.fillStyle='rgba(0,0,0,0.05)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#00ff41'; ctx.font='14px Share Tech Mono';
+  for(let i=0;i<drops.length;i++){const c=CHARS[Math.floor(Math.random()*CHARS.length)];ctx.fillText(c,i*16,drops[i]*16);if(drops[i]*16>canvas.height&&Math.random()>.975)drops[i]=0;drops[i]++;}
+}
+setInterval(drawRain,60);
+
+// Load data
+fetch('/api/backtest').then(r=>r.json()).then(d=>{
+  document.getElementById('note-box').style.display = 'block';
+  document.getElementById('subtitle').textContent =
+    `TRADERS UTILIZADOS: ${d.traders_used.join(' · ')}  |  BLOQUEADOS (WR < 85%): ${d.traders_blocked.join(', ')}`;
+
+  const pnlPos = d.total_pnl >= 0;
+  const sign   = d.total_pnl >= 0 ? '+' : '';
+
+  // KPIs
+  const kpis = [
+    {label:'SALDO FINAL',  val:`$${d.final_bal.toFixed(2)}`,     cls: pnlPos ? 'pos':'neg'},
+    {label:'PnL TOTAL',    val:`${sign}$${d.total_pnl.toFixed(2)}`, cls: pnlPos ? 'pos':'neg'},
+    {label:'RETORNO %',    val:`${sign}${d.total_pnl_pct.toFixed(2)}%`, cls: pnlPos ? 'pos':'neg'},
+    {label:'WIN RATE',     val:`${d.win_rate}%`,      cls: d.win_rate >= 60 ? 'pos':'neg'},
+    {label:'TRADES',       val:`${d.wins}W / ${d.losses}L`, cls:'neu'},
+    {label:'MAX DRAWDOWN', val:`-${d.max_drawdown}%`, cls:'neg'},
+    {label:'PICO',         val:`$${d.max_bal.toFixed(2)}`, cls:'pos'},
+    {label:'COPIES ABERTAS',val:`${d.copies}`,        cls:'ylw'},
+  ];
+  document.getElementById('kpi-grid').innerHTML = kpis.map(k=>
+    `<div class="kpi"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.val}</div></div>`
+  ).join('');
+
+  // Equity chart
+  const ec = d.equity_curve;
+  const labels = ec.map(e => new Date(e.ts).toLocaleDateString('pt-BR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}));
+  const vals   = ec.map(e => e.bal);
+  new Chart(document.getElementById('equity-chart').getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets: [{
+      data: vals, borderColor: pnlPos ? '#00ff41':'#ff2222',
+      backgroundColor: pnlPos ? 'rgba(0,255,65,0.08)':'rgba(255,34,34,0.08)',
+      borderWidth:2, pointRadius:0, tension:0.3, fill:true,
+    }]},
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false},
+        annotation:{annotations:{
+          baseline:{type:'line',yMin:1000,yMax:1000,borderColor:'rgba(255,255,255,0.2)',borderWidth:1,borderDash:[4,4],
+            label:{display:true,content:'$1,000 inicial',color:'#aaa',font:{size:10}}}
+        }}
+      },
+      scales:{
+        x:{ticks:{color:'#004400',maxTicksLimit:8,font:{size:9}},grid:{color:'rgba(0,80,0,0.2)'},border:{display:false}},
+        y:{ticks:{color:'#004400',font:{size:9},callback:v=>'$'+v.toFixed(0)},grid:{color:'rgba(0,80,0,0.3)'},border:{display:false}},
+      }
+    }
+  });
+
+  // Trader PnL chart
+  const tnames = Object.keys(d.pnl_by_trader);
+  const tvals  = tnames.map(k => d.pnl_by_trader[k]);
+  const tcolors = tvals.map(v => v >= 0 ? 'rgba(0,255,65,0.7)' : 'rgba(255,34,34,0.7)');
+  new Chart(document.getElementById('trader-chart').getContext('2d'), {
+    type: 'bar',
+    data: { labels: tnames, datasets:[{data:tvals, backgroundColor:tcolors, borderColor:tcolors, borderWidth:1}]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#004400',font:{size:9}},grid:{display:false},border:{display:false}},
+        y:{ticks:{color:'#004400',font:{size:9},callback:v=>'$'+v.toFixed(2)},grid:{color:'rgba(0,80,0,0.3)'},border:{display:false}},
+      }
+    }
+  });
+
+  // Trades table
+  const tbody = document.getElementById('trades-body');
+  tbody.innerHTML = d.trades.map(t => {
+    const pnlCls = t.pnl >= 0 ? 'pos':'neg';
+    const sign   = t.pnl >= 0 ? '+':'';
+    return `<tr>
+      <td class="dim">${t.ts}</td>
+      <td style="color:#fff;font-weight:bold">${t.coin}</td>
+      <td><span class="${t.side==='LONG'?'badge-long':'badge-short'}">${t.side}</span></td>
+      <td class="dim">$${parseFloat(t.entry).toLocaleString('en-US',{maximumFractionDigits:2})}</td>
+      <td style="color:#aaa">$${parseFloat(t.exit).toLocaleString('en-US',{maximumFractionDigits:2})}</td>
+      <td class="dim">${t.hold_h}h</td>
+      <td class="${pnlCls}">${sign}$${Math.abs(t.pnl).toFixed(4)}</td>
+      <td class="${pnlCls}">${sign}${t.pnl_pct.toFixed(2)}%</td>
+      <td style="color:#ffcc00">${t.trader}</td>
+      <td class="dim">$${t.balance.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+
+  // Open positions
+  const obody = document.getElementById('open-body');
+  if (!d.open_pos_detail || d.open_pos_detail.length === 0) {
+    obody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#003300;padding:20px">nenhuma posição aberta</td></tr>';
+  } else {
+    obody.innerHTML = d.open_pos_detail.map(p => `<tr>
+      <td style="color:#fff;font-weight:bold">${p.coin}</td>
+      <td><span class="${p.side==='LONG'?'badge-long':'badge-short'}">${p.side}</span></td>
+      <td class="dim">$${parseFloat(p.entry).toLocaleString('en-US',{maximumFractionDigits:2})}</td>
+      <td style="color:#ffcc00">${p.trader}</td>
+      <td class="dim">${p.hold_h}h</td>
+      <td class="dim">$${p.size.toFixed(2)}</td>
+    </tr>`).join('');
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<title>HYBRID MONITOR — POLY→HL</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+  :root{--gx:#00ff41;--g3:#00aa00;--g2:#003300;--g1:#001100;--red:#ff2222;--ylw:#ffcc00;--cyn:#00ffff;--pur:#cc44ff;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:#000;color:var(--gx);font-family:'Share Tech Mono',monospace;font-size:13px;padding:20px;}
+  #rain-canvas{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;opacity:0.05;z-index:0;}
+  .content{position:relative;z-index:1;max-width:1500px;margin:0 auto;}
+  h1{font-family:'Orbitron',monospace;font-size:20px;font-weight:900;color:var(--gx);text-shadow:0 0 12px var(--gx);letter-spacing:4px;text-align:center;margin-bottom:4px;}
+  .subtitle{text-align:center;color:var(--g3);font-size:10px;letter-spacing:2px;margin-bottom:22px;}
+  .back-link{display:inline-block;margin-bottom:18px;color:var(--g3);text-decoration:none;font-size:11px;letter-spacing:1px;}
+  .back-link:hover{color:var(--gx);}
+
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px;}
+  .kpi{background:rgba(0,10,0,0.9);border:1px solid var(--g2);border-radius:4px;padding:12px 10px;text-align:center;transition:border-color .3s;}
+  .kpi:hover{border-color:var(--gx);}
+  .kpi-label{color:var(--g3);font-size:10px;letter-spacing:1px;margin-bottom:5px;}
+  .kpi-val{font-family:'Orbitron',monospace;font-size:15px;font-weight:700;}
+  .pos{color:#00ff88;text-shadow:0 0 8px #00ff88;}
+  .neg{color:var(--red);text-shadow:0 0 8px var(--red);}
+  .neu{color:#fff;}
+  .ylw{color:var(--ylw);}
+  .cyn{color:var(--cyn);}
+  .pur{color:var(--pur);}
+
+  .panel{background:rgba(0,10,0,0.9);border:1px solid var(--g2);border-radius:4px;overflow:hidden;margin-bottom:16px;}
+  .panel:hover{border-color:var(--g3);}
+  .panel-title{background:linear-gradient(90deg,#001a00,#000a00);border-bottom:1px solid var(--g2);padding:8px 14px;font-family:'Orbitron',monospace;font-size:10px;font-weight:700;color:var(--gx);letter-spacing:2px;display:flex;justify-content:space-between;align-items:center;}
+  .panel-body{padding:14px;}
+
+  table{width:100%;border-collapse:collapse;font-size:11px;}
+  th{color:var(--g3);text-align:left;padding:5px 8px;border-bottom:1px solid var(--g2);font-size:10px;letter-spacing:1px;}
+  td{padding:5px 8px;border-bottom:1px solid #001200;}
+  tr:hover td{background:rgba(0,255,65,.04);}
+  .dim{color:var(--g3);}
+
+  .badge{padding:1px 6px;border-radius:2px;font-size:10px;font-weight:bold;}
+  .badge-long{background:rgba(0,255,65,.15);color:var(--gx);}
+  .badge-short{background:rgba(255,34,34,.15);color:var(--red);}
+  .badge-poly{background:rgba(0,204,255,.12);color:var(--cyn);}
+  .badge-open{background:rgba(255,204,0,.15);color:var(--ylw);}
+  .badge-closed{background:rgba(0,100,0,.3);color:var(--g3);}
+
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;}
+
+  .signal-card{background:rgba(0,15,0,0.95);border:1px solid var(--g2);border-radius:4px;padding:14px;margin-bottom:10px;transition:border-color .3s;}
+  .signal-card:hover{border-color:var(--gx);}
+  .signal-card.has-hl{border-left:3px solid var(--cyn);}
+  .signal-card.no-hl{border-left:3px solid var(--g2);}
+  .sig-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+  .sig-title{color:#fff;font-size:12px;font-weight:bold;}
+  .sig-meta{color:var(--g3);font-size:10px;margin-bottom:6px;}
+  .sig-prices{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px;}
+  .sig-box{background:#000;border:1px solid var(--g2);border-radius:3px;padding:8px;}
+  .sig-box-label{color:var(--g3);font-size:9px;letter-spacing:1px;margin-bottom:3px;}
+  .sig-box-val{font-family:'Orbitron',monospace;font-size:13px;}
+
+  .pulse{animation:pulse 2s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.5;}}
+
+  .price-tag{font-family:'Orbitron',monospace;font-size:11px;padding:2px 6px;border-radius:2px;background:#001a00;}
+  .wallet-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--gx);margin-right:6px;animation:pulse 2s infinite;}
+  .wallet-dot.stale{background:var(--g3);animation:none;}
+
+  #status-bar{text-align:center;padding:6px;font-size:10px;color:var(--g3);margin-bottom:16px;border:1px solid var(--g2);border-radius:4px;letter-spacing:1px;}
+  #status-bar.live{color:var(--gx);border-color:var(--g2);}
+
+  .empty-msg{text-align:center;padding:30px;color:#003300;font-size:12px;letter-spacing:2px;}
+</style>
+</head>
+<body>
+<canvas id="rain-canvas"></canvas>
+<div class="content">
+  <a class="back-link" href="/">← LIVE DASHBOARD</a> &nbsp;
+  <a class="back-link" href="/polymarket">← POLYMARKET BACKTEST</a>
+
+  <h1>▓ HYBRID MONITOR ▓</h1>
+  <div class="subtitle">POLYMARKET SIGNAL DETECTOR → HYPERLIQUID EXECUTION</div>
+
+  <div id="status-bar">⟳ CONECTANDO...</div>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <div class="two-col" style="margin-bottom:16px">
+    <!-- Sinais ativos com sinal cripto -->
+    <div>
+      <div class="panel-title" style="background:rgba(0,26,26,.9);border:1px solid var(--g2);border-radius:4px 4px 0 0;padding:8px 14px;font-family:Orbitron,monospace;font-size:10px;font-weight:700;color:var(--cyn);letter-spacing:2px;">
+        ▶ SINAIS CRYPTO ATIVOS <span id="crypto-count" class="pulse" style="color:var(--ylw)"></span>
+      </div>
+      <div id="crypto-signals" style="border:1px solid var(--g2);border-top:none;border-radius:0 0 4px 4px;padding:10px;min-height:120px;">
+        <div class="empty-msg">AGUARDANDO SINAIS...</div>
+      </div>
+    </div>
+
+    <!-- Todos os sinais Polymarket -->
+    <div>
+      <div class="panel-title" style="background:rgba(0,10,26,.9);border:1px solid var(--g2);border-radius:4px 4px 0 0;padding:8px 14px;font-family:Orbitron,monospace;font-size:10px;font-weight:700;color:var(--gx);letter-spacing:2px;">
+        ▶ TODAS AS POSIÇÕES ABERTAS <span id="all-count" style="color:var(--g3)"></span>
+      </div>
+      <div style="border:1px solid var(--g2);border-top:none;border-radius:0 0 4px 4px;padding:0;max-height:420px;overflow-y:auto">
+        <table id="all-signals-table">
+          <thead><tr><th>WALLET</th><th>MERCADO</th><th>OUTCOME</th><th>ENTRY</th><th>ATUAL</th><th>SIGNAL HL</th><th>ABERTO</th></tr></thead>
+          <tbody id="all-signals-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preços Hyperliquid -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-title">▶ PREÇOS HYPERLIQUID — ATUALIZAÇÃO AO VIVO</div>
+    <div class="panel-body" style="padding:12px">
+      <div id="hl-prices" style="display:flex;flex-wrap:wrap;gap:10px"></div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <!-- Wallets monitorados -->
+    <div class="panel">
+      <div class="panel-title">▶ WALLETS MONITORADOS</div>
+      <div class="panel-body" style="padding:0;max-height:320px;overflow-y:auto">
+        <table id="wallets-table">
+          <thead><tr><th>WALLET</th><th>EQ%</th><th>WR%</th><th>SINAIS</th><th>ÚLTIMO POLL</th></tr></thead>
+          <tbody id="wallets-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Sinais fechados recentes -->
+    <div class="panel">
+      <div class="panel-title">▶ SINAIS FECHADOS — HISTÓRICO</div>
+      <div class="panel-body" style="padding:0;max-height:320px;overflow-y:auto">
+        <table id="closed-table">
+          <thead><tr><th>WALLET</th><th>MERCADO</th><th>HL SIGNAL</th><th>HL PnL%</th></tr></thead>
+          <tbody id="closed-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Matrix rain
+const canvas=document.getElementById('rain-canvas'),ctx=canvas.getContext('2d'),CHARS='ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾃﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍｦｲｸｺｿﾁﾄﾉﾌﾔﾖﾙﾚﾛﾝ0123456789';
+let cols,drops;
+function initRain(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;cols=Math.floor(canvas.width/16);drops=Array(cols).fill(1);}
+initRain();window.addEventListener('resize',initRain);
+function drawRain(){ctx.fillStyle='rgba(0,0,0,0.05)';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.fillStyle='#00ff41';ctx.font='14px Share Tech Mono';for(let i=0;i<drops.length;i++){const c=CHARS[Math.floor(Math.random()*CHARS.length)];ctx.fillText(c,i*16,drops[i]*16);if(drops[i]*16>canvas.height&&Math.random()>.975)drops[i]=0;drops[i]++;}}
+setInterval(drawRain,60);
+
+function fmt(v,d=2){return parseFloat(v).toFixed(d);}
+function fmtPx(v){return '$'+parseFloat(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:4});}
+function pnlCls(v){return v>0?'pos':v<0?'neg':'dim';}
+function signalBadge(sig){
+  if(!sig) return '<span class="dim">—</span>';
+  const cls=sig.side==='LONG'?'badge-long':'badge-short';
+  return `<span class="badge ${cls}">${sig.coin} ${sig.side}</span>`;
+}
+
+function refresh(){
+  fetch('/api/hybrid').then(r=>r.json()).then(d=>{
+    const sb=document.getElementById('status-bar');
+    sb.className='live';
+    sb.textContent=`● LIVE · ${d.total_open} posições abertas · ${d.total_crypto} sinais crypto · atualizado ${new Date(d.ts*1000).toLocaleTimeString('pt-BR')}`;
+
+    // KPIs
+    const kpis=[
+      {label:'WALLETS',     val:d.wallets.length,          cls:'neu'},
+      {label:'POSIÇÕES',    val:d.total_open,               cls:'ylw'},
+      {label:'CRYPTO SIG.', val:d.total_crypto,             cls:'cyn'},
+      {label:'FECHADOS',    val:d.closed_signals.length,    cls:'dim'},
+      {label:'PnL TOTAL',   val:(d.total_pnl>=0?'+':'')+fmt(d.total_pnl), cls:pnlCls(d.total_pnl)},
+      {label:'HL PREÇOS',   val:Object.keys(d.hl_prices).length+'  coins', cls:'g3'},
+    ];
+    document.getElementById('kpi-grid').innerHTML=kpis.map(k=>
+      `<div class="kpi"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.val}</div></div>`
+    ).join('');
+
+    // Crypto signals cards
+    const cryptoSigs=d.signals.filter(s=>s.signal);
+    document.getElementById('crypto-count').textContent=cryptoSigs.length?`(${cryptoSigs.length})`:'';
+    const csEl=document.getElementById('crypto-signals');
+    if(cryptoSigs.length===0){
+      csEl.innerHTML='<div class="empty-msg">NENHUM SINAL CRYPTO DETECTADO AINDA<br><span style="font-size:10px;color:#002200">aguardando abertura de posições pelos wallets monitorados</span></div>';
+    } else {
+      csEl.innerHTML=cryptoSigs.map(s=>{
+        const sig=s.signal;
+        const hlPnlCls=pnlCls(s.hl_pnl_pct);
+        const hlPnlStr=(s.hl_pnl_pct>=0?'+':'')+fmt(s.hl_pnl_pct)+'%';
+        return `<div class="signal-card has-hl">
+          <div class="sig-header">
+            <span class="sig-title">${s.title}</span>
+            <span class="badge badge-poly">${s.outcome}</span>
+          </div>
+          <div class="sig-meta">
+            <span class="wallet-dot"></span>${s.wallet} &nbsp;·&nbsp; ${s.ts_str} &nbsp;·&nbsp; vence ${s.end_date}
+          </div>
+          <div class="sig-prices">
+            <div class="sig-box">
+              <div class="sig-box-label">POLYMARKET</div>
+              <div class="sig-box-val" style="color:var(--cyn)">${fmt(s.poly_entry*100,1)}¢ → ${fmt(s.poly_cur*100,1)}¢</div>
+            </div>
+            <div class="sig-box">
+              <div class="sig-box-label">HYPERLIQUID SIGNAL</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+                ${signalBadge(sig)}
+                ${s.hl_entry?`<span class="price-tag">${fmtPx(s.hl_entry)}</span>`:'<span class="dim">sem preço</span>'}
+                ${s.hl_entry?`<span class="${hlPnlCls}" style="font-family:Orbitron,monospace;font-size:12px">${hlPnlStr}</span>`:''}
+              </div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // All signals table
+    document.getElementById('all-count').textContent=`(${d.signals.length})`;
+    document.getElementById('all-signals-body').innerHTML=d.signals.length===0
+      ? '<tr><td colspan="7" class="empty-msg">nenhuma posição aberta detectada ainda</td></tr>'
+      : d.signals.map(s=>`<tr>
+          <td style="color:var(--ylw);font-size:10px">${s.wallet.substring(0,18)}</td>
+          <td style="font-size:10px;color:#aaa">${s.title.substring(0,28)}</td>
+          <td><span class="badge badge-poly">${s.outcome.substring(0,8)}</span></td>
+          <td class="dim">${fmt(s.poly_entry*100,1)}¢</td>
+          <td style="color:#fff">${fmt(s.poly_cur*100,1)}¢</td>
+          <td>${signalBadge(s.signal)}</td>
+          <td class="dim">${s.ts_str}</td>
+        </tr>`).join('');
+
+    // HL prices
+    document.getElementById('hl-prices').innerHTML=Object.keys(d.hl_prices).length===0
+      ? '<span class="dim" style="font-size:11px">aguardando sinais para buscar preços...</span>'
+      : Object.entries(d.hl_prices).map(([coin,px])=>
+          `<div class="price-tag" style="padding:6px 10px">
+            <span style="color:var(--g3);font-size:9px">${coin}</span>
+            <span style="color:#fff;margin-left:6px">${fmtPx(px)}</span>
+          </div>`
+        ).join('');
+
+    // Wallets table
+    document.getElementById('wallets-body').innerHTML=d.wallets.map(w=>{
+      const ago=w.last_poll_ago;
+      const agoStr=ago===null?'nunca':ago<60?ago+'s':Math.floor(ago/60)+'m';
+      const stale=ago===null||ago>120;
+      return `<tr>
+        <td><span class="wallet-dot ${stale?'stale':''}"></span><span style="color:var(--ylw)">${w.username.substring(0,20)}</span></td>
+        <td class="${w.avg_eq>=60?'pos':w.avg_eq>=50?'ylw':'dim'}">${w.avg_eq||'—'}%</td>
+        <td class="${w.win_rate>=70?'pos':w.win_rate>=55?'ylw':'dim'}">${w.win_rate||'—'}%</td>
+        <td class="${w.open_signals>0?'cyn':'dim'}">${w.open_signals}</td>
+        <td class="${stale?'neg':'dim'}">${agoStr}</td>
+      </tr>`;
+    }).join('');
+
+    // Closed signals
+    document.getElementById('closed-body').innerHTML=d.closed_signals.length===0
+      ? '<tr><td colspan="4" class="empty-msg">nenhum sinal fechado ainda</td></tr>'
+      : d.closed_signals.map(s=>`<tr>
+          <td style="color:var(--ylw);font-size:10px">${s.wallet.substring(0,18)}</td>
+          <td style="font-size:10px;color:#aaa">${s.title.substring(0,28)}</td>
+          <td>${signalBadge(s.signal)}</td>
+          <td class="${pnlCls(s.hl_pnl_pct)}">${s.hl_entry?(s.hl_pnl_pct>=0?'+':'')+fmt(s.hl_pnl_pct)+'%':'—'}</td>
+        </tr>`).join('');
+
+  }).catch(()=>{
+    document.getElementById('status-bar').textContent='✖ ERRO DE CONEXÃO — RECONECTANDO...';
+  });
+}
+
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>
