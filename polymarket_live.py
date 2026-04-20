@@ -56,7 +56,7 @@ MAX_PRICE            = 0.90
 TOP_WALLETS_N        = 10
 MIN_WIN_RATE         = 65.0
 MIN_EXIT_QUALITY     = 60.0
-MIN_TRADES_WALLET    = 10
+MIN_TRADES_WALLET    = 30
 BLOCKED_SPORTS       = {"Tennis"}
 MIN_HOURS_TO_RESOLVE = 6.0
 KELLY_FRACTION       = 0.25
@@ -83,7 +83,7 @@ def _init_constants():
     TOP_WALLETS_N         = c.get("top_wallets_n",         10)
     MIN_WIN_RATE          = c.get("min_win_rate",          65.0)
     MIN_EXIT_QUALITY      = c.get("min_exit_quality",      60.0)
-    MIN_TRADES_WALLET     = c.get("min_trades_wallet",     10)
+    MIN_TRADES_WALLET     = c.get("min_trades_wallet",     30)
     BLOCKED_SPORTS        = set(c.get("blocked_sports",    ["Tennis"]))
     MIN_HOURS_TO_RESOLVE  = c.get("min_hours_to_resolve",  6.0)
     KELLY_FRACTION        = c.get("kelly_fraction",        0.25)
