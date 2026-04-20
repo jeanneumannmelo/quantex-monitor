@@ -984,18 +984,35 @@ def _cleanup_zombie_positions():
 # ── Stop Loss próprio ────────────────────────────────────────────────────────
 
 def _check_stop_loss():
-    """Fecha posições do bot que atingiram o stop loss (pnl_pct <= STOP_LOSS_PCT)."""
+    """Fecha posições do bot que atingiram stop loss ou take profit."""
     with pm_lock:
-        live = list(pm_state["live_positions"])
+        live    = list(pm_state["live_positions"])
         bot_ids = set(pm_state["positions"].keys())
+        eq_cache = dict(pm_state["wallet_wr_cache"])  # usamos eq_cache para TP
 
     for pos in live:
-        cid     = pos.get("condition_id", "")
-        pnl_pct = pos.get("pnl_pct", 0)
-        if cid not in bot_ids:
+        cid       = pos.get("condition_id", "")
+        pnl_pct   = pos.get("pnl_pct", 0)
+        cur_price = pos.get("cur_price", 0)
+        entry     = pos.get("entry", 0)
+        if cid not in bot_ids or entry <= 0:
             continue
+
+        # Stop loss próprio
         if pnl_pct <= STOP_LOSS_PCT:
             _L(f"[STOPLOSS] ⛔ {pnl_pct:.1f}% ≤ {STOP_LOSS_PCT:.0f}% → fechando: {pos.get('title','')[:50]}")
+            execute_exit_trade(cid)
+            continue
+
+        # Take profit: cur_price >= 95% do expected_exit calculado no momento da entrada
+        # expected_exit = entry + (1 - entry) × (EQ/100)
+        with pm_lock:
+            wallet_username = pm_state["positions"].get(cid, {}).get("wallet", "")
+            eq = pm_state["wallet_eq_cache"].get(wallet_username, 60.0)
+        expected_exit = entry + (1.0 - entry) * (eq / 100.0)
+        tp_threshold  = expected_exit * 0.95
+        if cur_price >= tp_threshold:
+            _L(f"[TAKEPROFIT] ✅ {pnl_pct:.1f}% | price={cur_price:.3f} ≥ target={tp_threshold:.3f} → fechando: {pos.get('title','')[:50]}")
             execute_exit_trade(cid)
 
 
