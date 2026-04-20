@@ -40,7 +40,7 @@ CHAIN_ID             = 137
 POLL_INTERVAL        = 5
 LEADERBOARD_REFRESH  = 300
 
-CONFIG_PATH = "/Users/mac/matrix_dashboard/config.json"
+CONFIG_PATH = os.environ.get("CONFIG_PATH", "/Users/mac/matrix_dashboard/config.json")
 
 def _load_pm_cfg() -> dict:
     try:
@@ -234,8 +234,14 @@ def _derive_api_creds():
 
 
 def _load_saved_creds():
+    # Prioridade: env vars (Heroku) > config.json (local)
+    env_key  = os.environ.get("PM_API_KEY", "")
+    env_sec  = os.environ.get("PM_API_SECRET", "")
+    env_pass = os.environ.get("PM_API_PASS", "")
+    if env_key and env_sec and env_pass:
+        return env_key, env_sec, env_pass
     try:
-        with open("/Users/mac/matrix_dashboard/config.json") as f:
+        with open(CONFIG_PATH) as f:
             cfg = json.load(f)
         return (
             cfg.get("pm_api_key", ""),
@@ -355,9 +361,16 @@ def _refresh_live_positions():
     """Busca posições abertas do proxy wallet e calcula PnL não realizado."""
     try:
         import requests as _req
-        with open("/Users/mac/matrix_dashboard/config.json") as f:
-            cfg = json.load(f)
-        funder = cfg.get("pm_funder", pm_state["address"])
+        # Usa env var (Heroku) ou config.json (local), fallback ao address
+        funder = os.environ.get("PM_FUNDER", "")
+        if not funder:
+            try:
+                with open(CONFIG_PATH) as f:
+                    funder = json.load(f).get("pm_funder", "")
+            except Exception:
+                pass
+        if not funder:
+            funder = pm_state["address"]
 
         r = _req.get(
             f"{DATA_API}/positions",
@@ -678,21 +691,39 @@ def _get_clob_client():
     from py_clob_client.client import ClobClient
     from py_clob_client.clob_types import ApiCreds
 
-    with open("/Users/mac/matrix_dashboard/config.json") as f:
-        cfg = json.load(f)
+    # Usa pm_state (já populado no init) — sem ler config.json novamente
+    with pm_lock:
+        api_key    = pm_state["api_key"]
+        api_secret = pm_state["api_secret"]
+        api_pass   = pm_state["api_passphrase"]
+        address    = pm_state["address"]
+
+    # Chave privada e funder: env vars (Heroku) > config.json (local)
+    private_key = os.environ.get("PM_PRIVATE_KEY", "")
+    funder      = os.environ.get("PM_FUNDER", "")
+    if not private_key or not funder:
+        try:
+            with open(CONFIG_PATH) as f:
+                cfg = json.load(f)
+            private_key = private_key or cfg.get("pm_private_key", "")
+            funder      = funder      or cfg.get("pm_funder", address)
+        except Exception:
+            pass
+    if not funder:
+        funder = address
 
     creds = ApiCreds(
-        api_key        = cfg["pm_api_key"],
-        api_secret     = cfg["pm_api_secret"],
-        api_passphrase = cfg["pm_api_pass"],
+        api_key        = api_key,
+        api_secret     = api_secret,
+        api_passphrase = api_pass,
     )
     return ClobClient(
         host           = CLOB_API,
-        key            = cfg["pm_private_key"],
+        key            = private_key,
         chain_id       = CHAIN_ID,
         creds          = creds,
         signature_type = 1,
-        funder         = cfg["pm_funder"],
+        funder         = funder,
     )
 
 
