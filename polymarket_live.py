@@ -70,13 +70,14 @@ ZOMBIE_MAX_PRICE     = 0.06
 WR_BIAS_DISCOUNT          = 0.85
 PM_ENABLED                = True
 MAX_TOTAL_EXPOSURE_PCT    = 0.65
+STOP_LOSS_PCT             = -25.0
 
 def _init_constants():
     global MIN_PRICE, MAX_PRICE, TOP_WALLETS_N, MIN_WIN_RATE, MIN_EXIT_QUALITY
     global MIN_TRADES_WALLET, BLOCKED_SPORTS, MIN_HOURS_TO_RESOLVE, KELLY_FRACTION
     global MIN_ALLOC, MAX_ALLOC_PCT, CIRCUIT_BREAKER_DD, MAX_DAILY_LOSS_PCT
     global MAX_CONSECUTIVE_LOSS, ZOMBIE_MAX_DAYS, ZOMBIE_MAX_PRICE
-    global WR_BIAS_DISCOUNT, PM_ENABLED, MAX_TOTAL_EXPOSURE_PCT
+    global WR_BIAS_DISCOUNT, PM_ENABLED, MAX_TOTAL_EXPOSURE_PCT, STOP_LOSS_PCT
     c = _load_pm_cfg()
     MIN_PRICE             = c.get("min_price",             0.05)
     MAX_PRICE             = c.get("max_price",             0.90)
@@ -97,6 +98,7 @@ def _init_constants():
     WR_BIAS_DISCOUNT          = c.get("wr_bias_discount",          0.85)
     PM_ENABLED                = c.get("enabled",                   True)
     MAX_TOTAL_EXPOSURE_PCT    = c.get("max_total_exposure_pct",    0.65)
+    STOP_LOSS_PCT             = c.get("stop_loss_pct",             -25.0)
 
 _init_constants()
 
@@ -979,6 +981,24 @@ def _cleanup_zombie_positions():
             execute_exit_trade(cid)
 
 
+# ── Stop Loss próprio ────────────────────────────────────────────────────────
+
+def _check_stop_loss():
+    """Fecha posições do bot que atingiram o stop loss (pnl_pct <= STOP_LOSS_PCT)."""
+    with pm_lock:
+        live = list(pm_state["live_positions"])
+        bot_ids = set(pm_state["positions"].keys())
+
+    for pos in live:
+        cid     = pos.get("condition_id", "")
+        pnl_pct = pos.get("pnl_pct", 0)
+        if cid not in bot_ids:
+            continue
+        if pnl_pct <= STOP_LOSS_PCT:
+            _L(f"[STOPLOSS] ⛔ {pnl_pct:.1f}% ≤ {STOP_LOSS_PCT:.0f}% → fechando: {pos.get('title','')[:50]}")
+            execute_exit_trade(cid)
+
+
 # ── Monitor por wallet ────────────────────────────────────────────────────────
 
 def _check_wallet(wallet: dict):
@@ -1071,6 +1091,7 @@ def _poller():
             _init_constants()  # hot-reload de parâmetros do config
             _refresh_balance()
             _refresh_live_positions()
+            _check_stop_loss()
             _emit_state()
             with pm_lock:
                 n_wallets    = len(pm_state.get("tracked_wallets", []))
