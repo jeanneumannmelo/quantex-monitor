@@ -32,7 +32,8 @@ TOP_WALLETS_N        = 10
 MIN_WIN_RATE         = 62.0
 MIN_EXIT_QUALITY     = 55.0
 MIN_TRADES_WALLET    = 8
-BLOCKED_SPORTS       = {"Tennis"}   # apenas Tennis — resolve em horas, muito arriscado
+BLOCKED_SPORTS       = {"Tennis"}   # Tennis: jogos resolvem em horas
+MIN_HOURS_TO_RESOLVE = 4.0          # ignora mercados que resolvem em < 4h
 
 # Kelly / cash management
 KELLY_FRACTION       = 0.50
@@ -551,17 +552,39 @@ SPORT_BLOCK_RE = {
     "MMA":    _re.compile(r"\b(ufc|mma|bellator|boxing|fight night|knockout|ko|tko|submission|bout)\b", _re.I),
 }
 
-# Padrão de jogos individuais — resolvem em horas, bloqueados independente de categoria
-GAME_BET_RE = _re.compile(
-    r"\bvs\.?\s+\w|O/U\s+\d|over/under|\bpts\b|\bgoals\b|\bscoring\b|\bwill\s+\w+\s+score|\bfirst\s+(goal|basket|td|touchdown)\b",
-    _re.I
-)
-
 def classify_sport(title: str):
     for sport, pat in SPORT_BLOCK_RE.items():
         if pat.search(title):
             return sport
     return None
+
+
+_market_end_cache: dict = {}
+
+def _get_market_end_date(condition_id: str) -> float:
+    """Retorna timestamp Unix da data de resolução do mercado, ou 0 se não encontrado."""
+    if condition_id in _market_end_cache:
+        return _market_end_cache[condition_id]
+    try:
+        r = _req.get(
+            "https://gamma-api.polymarket.com/markets",
+            params={"conditionIds": condition_id},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=6,
+        )
+        data = r.json()
+        if data and isinstance(data, list):
+            from datetime import datetime, timezone
+            end_str = data[0].get("endDate", "")
+            if end_str:
+                dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+                ts = dt.timestamp()
+                _market_end_cache[condition_id] = ts
+                return ts
+    except Exception:
+        pass
+    _market_end_cache[condition_id] = 0
+    return 0
 
 
 # ── CLOB client ───────────────────────────────────────────────────────────────
@@ -771,8 +794,10 @@ def _check_wallet(wallet: dict):
             continue
         if classify_sport(title) in BLOCKED_SPORTS:
             continue
-        if GAME_BET_RE.search(title):
-            continue  # jogo individual — resolve em horas
+        # Rejeita mercados que resolvem em menos de MIN_HOURS_TO_RESOLVE horas
+        end_ts = _get_market_end_date(cid)
+        if end_ts > 0 and (end_ts - time.time()) < MIN_HOURS_TO_RESOLVE * 3600:
+            continue
 
         with pm_lock:
             already = cid in pm_state["known_positions"]

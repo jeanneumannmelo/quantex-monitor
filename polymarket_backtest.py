@@ -50,11 +50,8 @@ SPORTS_ONLY  = True   # True = exclui cripto, mantém esportes/outros
 
 import re as _re
 
-# Mesmos filtros do live — bloqueia Tennis e jogos individuais (vs. / O/U)
-GAME_BET_RE_BT = _re.compile(
-    r"\bvs\.?\s+\w|O/U\s+\d|over/under|\bpts\b|\bgoals\b|\bscoring\b|\bwill\s+\w+\s+score|\bfirst\s+(goal|basket|td|touchdown)\b",
-    _re.I
-)
+# Mesmos filtros do live
+MIN_HOURS_TO_RESOLVE = 4.0  # ignora mercados que resolvem em < 4h após entrada
 TENNIS_RE_BT = _re.compile(
     r"\b(atp|wta|tennis|wimbledon|french open|australian open|roland garros|madrid open|rome open|miami open|indian wells|monte carlo|davis cup|fed cup|laver cup|qualifier|qualification)\b",
     _re.I
@@ -341,8 +338,11 @@ for w in top_wallets:
             continue
         if TENNIS_RE_BT.search(title_pos):
             continue
-        if GAME_BET_RE_BT.search(title_pos):
-            continue
+        # Bloqueia mercados que resolveram em < 4h após entrada (jogos intraday)
+        resolve_ts = pos.get("endDate") or pos.get("resolveTime") or 0
+        if resolve_ts and isinstance(resolve_ts, (int, float)):
+            if (resolve_ts - ts) < MIN_HOURS_TO_RESOLVE * 3600:
+                continue
         eq, kind = calc_exit_quality(pos)
         if eq is None or kind not in ("win", "loss"):
             continue
