@@ -22,9 +22,9 @@ from hybrid_monitor import start_monitor, get_state as hybrid_get_state
 WS_URL        = "wss://api.hyperliquid.xyz/ws"
 REST_URL      = "https://api.hyperliquid.xyz/info"
 STATS_URL     = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
-STARTING_BAL  = 1000.0
+STARTING_BAL  = 2008.0   # R$10.000 @ 4.98 BRL/USD
 MAX_POS_PCT   = 0.08
-MAX_POSITIONS = 5
+MAX_POSITIONS = 12        # cobre 100% do capital em posições simultâneas
 MIN_COPY_WR   = 85  # só copia traders com win rate >= 85%
 
 TOP_TRADERS = [
