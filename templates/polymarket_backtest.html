@@ -2,299 +2,561 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8"/>
-<title>POLYMARKET — EXIT QUALITY STRATEGY</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Polymarket — Exit Quality Strategy · Quantex</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
-  :root { --gx:#00ff41; --g3:#00aa00; --g2:#003300; --g1:#001100; --red:#ff2222; --ylw:#ffcc00; --cyn:#00ffff; --pur:#cc44ff; }
+  :root {
+    --bg:      #070c18;
+    --surface: #0d1526;
+    --card:    #111f35;
+    --card-h:  #152440;
+    --border:  rgba(255,255,255,0.07);
+    --border-h:rgba(59,130,246,0.35);
+    --blue:    #3b82f6;
+    --green:   #10b981;
+    --red:     #ef4444;
+    --yellow:  #f59e0b;
+    --purple:  #8b5cf6;
+    --teal:    #06b6d4;
+    --text:    #f1f5f9;
+    --sub:     #94a3b8;
+    --muted:   #475569;
+    --grid:    rgba(30,45,74,0.6);
+  }
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#000; color:var(--gx); font-family:'Share Tech Mono',monospace; font-size:13px; padding:20px; }
+  html, body { height:100%; }
+  body { background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; font-size:13px; display:flex; }
 
-  #rain-canvas { position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; opacity:0.05; z-index:0; }
-  .content { position:relative; z-index:1; max-width:1500px; margin:0 auto; }
+  /* ── Sidebar ── */
+  .sidebar {
+    width:220px; min-height:100vh; background:var(--surface);
+    border-right:1px solid var(--border); display:flex; flex-direction:column;
+    flex-shrink:0; position:fixed; top:0; left:0; bottom:0; z-index:100;
+  }
+  .logo {
+    padding:24px 20px 20px;
+    font-size:18px; font-weight:700; letter-spacing:1px; color:var(--text);
+    border-bottom:1px solid var(--border);
+  }
+  .logo span { color:var(--blue); }
+  .logo-sub { font-size:10px; font-weight:400; color:var(--muted); letter-spacing:2px; margin-top:2px; }
+  nav { padding:16px 10px; flex:1; }
+  .nav-section { font-size:10px; font-weight:600; color:var(--muted); letter-spacing:1.5px; padding:8px 10px 6px; }
+  .nav-link {
+    display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:8px;
+    color:var(--sub); text-decoration:none; font-size:13px; font-weight:500;
+    transition:all .15s; margin-bottom:2px;
+  }
+  .nav-link:hover { background:var(--card); color:var(--text); }
+  .nav-link.active { background:rgba(59,130,246,0.15); color:var(--blue); }
+  .nav-icon { width:16px; text-align:center; font-size:14px; }
+  .sidebar-footer { padding:16px 20px; border-top:1px solid var(--border); font-size:11px; color:var(--muted); }
 
-  h1 { font-family:'Orbitron',monospace; font-size:20px; font-weight:900; color:var(--gx);
-       text-shadow:0 0 12px var(--gx); letter-spacing:4px; text-align:center; margin-bottom:4px; }
-  .subtitle { text-align:center; color:var(--g3); font-size:10px; letter-spacing:2px; margin-bottom:22px; }
+  /* ── Main ── */
+  .main { margin-left:220px; flex:1; display:flex; flex-direction:column; min-height:100vh; }
 
-  .kpi-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:20px; }
-  .kpi { background:rgba(0,10,0,0.9); border:1px solid var(--g2); border-radius:4px; padding:14px 10px; text-align:center; transition:border-color .3s; }
-  .kpi:hover { border-color:var(--gx); }
-  .kpi-label { color:var(--g3); font-size:10px; letter-spacing:1px; margin-bottom:6px; }
-  .kpi-val { font-family:'Orbitron',monospace; font-size:16px; font-weight:700; }
-  .pos { color:#00ff88; text-shadow:0 0 8px #00ff88; }
-  .neg { color:var(--red); text-shadow:0 0 8px var(--red); }
-  .neu { color:#fff; }
-  .ylw { color:var(--ylw); }
-  .pur { color:var(--pur); }
+  /* ── Topbar ── */
+  .topbar {
+    background:var(--surface); border-bottom:1px solid var(--border);
+    padding:14px 28px; display:flex; align-items:center; justify-content:space-between;
+    flex-shrink:0;
+  }
+  .topbar-title { font-size:15px; font-weight:600; color:var(--text); }
+  .topbar-sub { font-size:12px; color:var(--sub); margin-top:1px; }
+  .topbar-right { display:flex; align-items:center; gap:16px; }
 
-  .panels { display:grid; grid-template-columns:2fr 1fr; gap:14px; margin-bottom:18px; }
-  .panel { background:rgba(0,10,0,0.9); border:1px solid var(--g2); border-radius:4px; overflow:hidden; }
-  .panel:hover { border-color:var(--g3); }
-  .panel-title { background:linear-gradient(90deg,#001a00,#000a00); border-bottom:1px solid var(--g2);
-                  padding:8px 14px; font-family:'Orbitron',monospace; font-size:10px; font-weight:700;
-                  color:var(--gx); letter-spacing:2px; }
-  .panel-body { padding:14px; }
+  /* Currency toggle */
+  .currency-toggle {
+    display:flex; background:var(--card); border:1px solid var(--border);
+    border-radius:8px; overflow:hidden;
+  }
+  .cur-btn {
+    padding:6px 14px; font-size:12px; font-weight:600; cursor:pointer;
+    border:none; background:transparent; color:var(--sub); transition:all .15s;
+  }
+  .cur-btn.active { background:var(--blue); color:#fff; }
+  .rate-badge {
+    background:var(--card); border:1px solid var(--border); border-radius:8px;
+    padding:6px 12px; font-size:11px; color:var(--sub);
+  }
+  .rate-badge span { color:var(--yellow); font-weight:600; }
 
-  canvas { width:100% !important; }
-  table { width:100%; border-collapse:collapse; font-size:11px; }
-  th { color:var(--g3); text-align:left; padding:5px 8px; border-bottom:1px solid var(--g2); font-size:10px; letter-spacing:1px; }
-  td { padding:4px 8px; border-bottom:1px solid #001200; }
-  tr:hover td { background:rgba(0,255,65,.04); }
-  .badge-win  { background:rgba(0,255,65,.15); color:var(--gx); padding:1px 5px; border-radius:2px; font-size:10px; }
-  .badge-loss { background:rgba(255,34,34,.15); color:var(--red); padding:1px 5px; border-radius:2px; font-size:10px; }
-  .dim { color:var(--g3); }
-  .eq-bar { display:inline-block; height:8px; background:var(--gx); border-radius:2px; opacity:0.7; vertical-align:middle; margin-left:4px; }
+  /* ── Content ── */
+  .content { padding:24px 28px; flex:1; }
 
-  .three-col { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:18px; }
-  .two-col   { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px; }
-  .back-link { display:inline-block; margin-bottom:18px; color:var(--g3); text-decoration:none; font-size:11px; letter-spacing:1px; }
-  .back-link:hover { color:var(--gx); }
-  .tag { display:inline-block; padding:1px 6px; border-radius:2px; font-size:10px; }
-  .tag-poly { background:rgba(0,204,255,.12); color:var(--cyn); }
+  /* ── KPI Grid ── */
+  .kpi-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:14px; margin-bottom:24px; }
+  .kpi {
+    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:18px 16px; transition:all .2s; cursor:default;
+  }
+  .kpi:hover { border-color:var(--border-h); background:var(--card-h); }
+  .kpi-label { font-size:11px; font-weight:500; color:var(--sub); letter-spacing:.5px; margin-bottom:8px; }
+  .kpi-val { font-size:22px; font-weight:700; line-height:1; }
+  .kpi-sub { font-size:11px; color:var(--muted); margin-top:5px; }
+  .c-green  { color:var(--green); }
+  .c-red    { color:var(--red); }
+  .c-blue   { color:var(--blue); }
+  .c-yellow { color:var(--yellow); }
+  .c-purple { color:var(--purple); }
+  .c-teal   { color:var(--teal); }
+  .c-text   { color:var(--text); }
 
-  #loading { text-align:center; padding:60px; color:var(--g3); font-size:14px; letter-spacing:2px; }
-  .eq-badge { font-size:10px; padding:1px 5px; border-radius:2px; }
-  .eq-high { background:rgba(0,255,65,.2); color:#00ff88; }
-  .eq-mid  { background:rgba(255,204,0,.15); color:var(--ylw); }
-  .eq-low  { background:rgba(255,34,34,.15); color:var(--red); }
+  /* Projection card highlight */
+  .kpi-projection {
+    background:linear-gradient(135deg,rgba(59,130,246,0.12),rgba(16,185,129,0.08));
+    border-color:rgba(59,130,246,0.25);
+  }
+
+  /* ── Panels ── */
+  .panel {
+    background:var(--card); border:1px solid var(--border); border-radius:12px;
+    overflow:hidden; margin-bottom:20px; transition:border-color .2s;
+  }
+  .panel:hover { border-color:rgba(255,255,255,0.12); }
+  .panel-head {
+    padding:14px 20px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .panel-title { font-size:13px; font-weight:600; color:var(--text); }
+  .panel-meta  { font-size:11px; color:var(--sub); }
+  .panel-body  { padding:20px; }
+
+  .two-col   { display:grid; grid-template-columns:2fr 1fr; gap:20px; margin-bottom:20px; }
+  .three-col { display:grid; grid-template-columns:1fr 1fr 1fr; gap:20px; margin-bottom:20px; }
+  .two-col-eq{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-bottom:20px; }
+
+  /* ── Tables ── */
+  table { width:100%; border-collapse:collapse; }
+  th {
+    text-align:left; padding:10px 14px; font-size:11px; font-weight:600;
+    color:var(--muted); letter-spacing:.5px; border-bottom:1px solid var(--border);
+    white-space:nowrap;
+  }
+  td { padding:10px 14px; border-bottom:1px solid rgba(255,255,255,0.03); font-size:12px; }
+  tr:last-child td { border-bottom:none; }
+  tbody tr:hover td { background:rgba(255,255,255,0.025); }
+  .scrollable { max-height:380px; overflow-y:auto; }
+  .scrollable::-webkit-scrollbar { width:4px; }
+  .scrollable::-webkit-scrollbar-track { background:transparent; }
+  .scrollable::-webkit-scrollbar-thumb { background:var(--border-h); border-radius:2px; }
+
+  /* ── Badges ── */
+  .badge {
+    display:inline-flex; align-items:center; padding:2px 8px; border-radius:6px;
+    font-size:11px; font-weight:600; white-space:nowrap;
+  }
+  .badge-green  { background:rgba(16,185,129,.15); color:var(--green); }
+  .badge-red    { background:rgba(239,68,68,.15);  color:var(--red); }
+  .badge-yellow { background:rgba(245,158,11,.15); color:var(--yellow); }
+  .badge-blue   { background:rgba(59,130,246,.15); color:var(--blue); }
+  .badge-purple { background:rgba(139,92,246,.15); color:var(--purple); }
+  .badge-teal   { background:rgba(6,182,212,.15);  color:var(--teal); }
+  .badge-gray   { background:rgba(148,163,184,.1); color:var(--sub); }
+
+  /* ── EQ bar ── */
+  .eq-bar-wrap { display:flex; align-items:center; gap:8px; }
+  .eq-bar-bg { flex:1; height:5px; background:rgba(255,255,255,0.07); border-radius:3px; }
+  .eq-bar-fill { height:100%; border-radius:3px; }
+
+  /* ── Monthly bars ── */
+  .month-bar-wrap { display:flex; align-items:center; gap:8px; }
+  .month-bar-bg { width:120px; height:8px; background:rgba(255,255,255,0.07); border-radius:4px; }
+  .month-bar-fill { height:100%; border-radius:4px; }
+
+  /* ── Sport pill ── */
+  .sport-pill {
+    display:inline-block; padding:2px 8px; border-radius:20px; font-size:10px;
+    font-weight:600; background:rgba(139,92,246,.15); color:var(--purple);
+  }
+
+  /* ── Loading ── */
+  .loading-wrap { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:400px; gap:12px; }
+  .spinner { width:32px; height:32px; border:3px solid var(--border); border-top-color:var(--blue); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .loading-text { color:var(--sub); font-size:14px; }
+
+  /* ── Projection Panel ── */
+  .proj-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:14px; }
+  .proj-item {
+    background:rgba(59,130,246,0.06); border:1px solid rgba(59,130,246,0.15);
+    border-radius:10px; padding:16px;
+  }
+  .proj-cap  { font-size:12px; color:var(--sub); margin-bottom:4px; }
+  .proj-usd  { font-size:20px; font-weight:700; color:var(--green); }
+  .proj-brl  { font-size:13px; color:var(--blue); margin-top:2px; font-weight:500; }
+  .proj-per  { font-size:11px; color:var(--muted); margin-top:4px; }
 </style>
 </head>
 <body>
-<canvas id="rain-canvas"></canvas>
-<div class="content">
-  <a class="back-link" href="/">← DASHBOARD AO VIVO</a>
-  &nbsp;&nbsp;
-  <a class="back-link" href="/backtest">← BACKTEST HYPERLIQUID</a>
 
-  <h1>▓ POLYMARKET — EXIT QUALITY STRATEGY ▓</h1>
-  <div class="subtitle" id="subtitle">COPY TRADE DOS MELHORES WALLETS POR QUALIDADE DE SAÍDA · DADOS REAIS DA POLYMARKET</div>
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="logo">QUANT<span>EX</span><div class="logo-sub">MONITOR</div></div>
+  <nav>
+    <div class="nav-section">NAVEGAÇÃO</div>
+    <a class="nav-link" href="/"><span class="nav-icon">⬡</span> Dashboard</a>
+    <a class="nav-link" href="/backtest"><span class="nav-icon">◈</span> Backtest HL</a>
+    <a class="nav-link active" href="/polymarket"><span class="nav-icon">◉</span> Polymarket</a>
+    <a class="nav-link" href="/hybrid"><span class="nav-icon">⬡</span> Hybrid Monitor</a>
+  </nav>
+  <div class="sidebar-footer">Quantex Monitor v2.0</div>
+</aside>
 
-  <div id="loading">⟳ CARREGANDO DADOS...</div>
-  <div id="main" style="display:none">
-
-    <div class="kpi-grid" id="kpi-grid"></div>
-
-    <div class="panels">
-      <div class="panel">
-        <div class="panel-title">▶ CURVA DE EQUITY</div>
-        <div class="panel-body" style="height:260px"><canvas id="equity-chart"></canvas></div>
-      </div>
-      <div class="panel">
-        <div class="panel-title">▶ PnL POR WALLET</div>
-        <div class="panel-body" style="height:260px"><canvas id="wallet-chart"></canvas></div>
+<!-- Main -->
+<div class="main">
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">Polymarket — Exit Quality Strategy</div>
+      <div class="topbar-sub" id="period-sub">Carregando dados...</div>
+    </div>
+    <div class="topbar-right">
+      <div class="rate-badge">USD/BRL <span id="rate-display">—</span></div>
+      <div class="currency-toggle">
+        <button class="cur-btn active" onclick="setCurrency('USD')">USD</button>
+        <button class="cur-btn" onclick="setCurrency('BRL')">BRL</button>
       </div>
     </div>
+  </div>
 
-    <div class="panel" style="margin-bottom:18px">
-      <div class="panel-title">▶ TOP WALLETS — RANQUEADOS POR EXIT QUALITY</div>
-      <div class="panel-body" style="padding:0">
-        <table id="wallets-table">
-          <thead><tr>
-            <th>#</th><th>WALLET</th><th>EXIT QUALITY</th><th>EQ WINS</th><th>EQ LOSSES</th>
-            <th>WIN RATE</th><th>TRADES</th><th>PnL MÊS</th>
-          </tr></thead>
-          <tbody id="wallets-body"></tbody>
-        </table>
-      </div>
+  <div class="content">
+    <div id="loading-wrap" class="loading-wrap">
+      <div class="spinner"></div>
+      <div class="loading-text">Carregando backtest...</div>
     </div>
 
-    <div class="panel" style="margin-bottom:18px">
-      <div class="panel-title">▶ PnL MENSAL — BREAKDOWN POR MÊS</div>
-      <div class="panel-body" style="padding:0">
-        <table id="monthly-table">
-          <thead><tr><th>MÊS</th><th>PnL</th><th>WINS</th><th>LOSSES</th><th>TRADES</th><th>BARRA</th></tr></thead>
-          <tbody id="monthly-body"></tbody>
-        </table>
-      </div>
-    </div>
+    <div id="main-content" style="display:none">
 
-    <div class="two-col">
+      <!-- KPIs -->
+      <div class="kpi-grid" id="kpi-grid"></div>
+
+      <!-- Equity + Wallet PnL -->
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Curva de Equity</div>
+            <div class="panel-meta" id="equity-meta"></div>
+          </div>
+          <div class="panel-body" style="height:240px"><canvas id="equity-chart"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">PnL por Wallet</div>
+          </div>
+          <div class="panel-body" style="height:240px"><canvas id="wallet-chart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Projection Panel -->
       <div class="panel">
-        <div class="panel-title">▶ TRADES SIMULADOS</div>
-        <div class="panel-body" style="padding:0; max-height:380px; overflow-y:auto">
-          <table id="trades-table">
-            <thead><tr><th>DATA</th><th>WALLET</th><th>MERCADO</th><th>OUTCOME</th><th>ENTRY</th><th>EXIT</th><th>EQ</th><th>PnL</th><th>SALDO</th></tr></thead>
-            <tbody id="trades-body"></tbody>
+        <div class="panel-head">
+          <div class="panel-title">Projeção de Retorno · Escala de Capital</div>
+          <div class="panel-meta">Base: 8% por trade · 90 dias · Dados históricos</div>
+        </div>
+        <div class="panel-body">
+          <div class="proj-grid" id="proj-grid"></div>
+        </div>
+      </div>
+
+      <!-- Monthly + Sport breakdown -->
+      <div class="two-col-eq">
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">PnL Mensal</div></div>
+          <div class="panel-body" style="padding:0">
+            <table><thead><tr><th>MÊS</th><th>PnL</th><th>WIN/LOSS</th><th>TRADES</th><th>BARRA</th></tr></thead>
+            <tbody id="monthly-body"></tbody></table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">PnL por Esporte</div></div>
+          <div class="panel-body" style="padding:0">
+            <table><thead><tr><th>CATEGORIA</th><th>PnL</th><th>TRADES</th><th>WIN RATE</th></tr></thead>
+            <tbody id="sport-body"></tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Wallets -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Top Wallets — Ranqueados por Exit Quality</div>
+          <div class="panel-meta">Mínimo EQ 50% · WR ≥ 55%</div>
+        </div>
+        <div class="panel-body" style="padding:0">
+          <table>
+            <thead><tr><th>#</th><th>WALLET</th><th>EXIT QUALITY</th><th>EQ WINS</th><th>EQ LOSSES</th><th>WIN RATE</th><th>TRADES</th><th>PnL MÊS</th></tr></thead>
+            <tbody id="wallets-body"></tbody>
           </table>
         </div>
       </div>
-      <div class="panel">
-        <div class="panel-title">▶ DISTRIBUIÇÃO DE EXIT QUALITY</div>
-        <div class="panel-body" style="height:380px"><canvas id="eq-chart"></canvas></div>
-      </div>
-    </div>
 
-  </div><!-- /main -->
-</div><!-- /content -->
+      <!-- Trades + EQ dist -->
+      <div class="two-col-eq">
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">Trades Simulados</div><div class="panel-meta" id="trades-count"></div></div>
+          <div class="panel-body" style="padding:0">
+            <div class="scrollable">
+              <table><thead><tr><th>DATA</th><th>WALLET</th><th>MERCADO</th><th>ENTRY</th><th>EXIT</th><th>EQ</th><th>PnL</th></tr></thead>
+              <tbody id="trades-body"></tbody></table>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><div class="panel-title">Distribuição de Exit Quality</div></div>
+          <div class="panel-body" style="height:360px"><canvas id="eq-chart"></canvas></div>
+        </div>
+      </div>
+
+    </div><!-- /main-content -->
+  </div><!-- /content -->
+</div><!-- /main -->
 
 <script>
-// Matrix rain
-const canvas = document.getElementById('rain-canvas');
-const ctx = canvas.getContext('2d');
-const CHARS = 'ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘｱﾎﾃﾏｹﾒｴｶｷﾑﾕﾗｾﾈｽﾀﾇﾍｦｲｸｺｿﾁﾄﾉﾌﾔﾖﾙﾚﾛﾝ0123456789';
-let cols, drops;
-function initRain(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight; cols=Math.floor(canvas.width/16); drops=Array(cols).fill(1); }
-initRain(); window.addEventListener('resize', initRain);
-function drawRain(){ ctx.fillStyle='rgba(0,0,0,0.05)'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle='#00ff41'; ctx.font='14px Share Tech Mono'; for(let i=0;i<drops.length;i++){const c=CHARS[Math.floor(Math.random()*CHARS.length)];ctx.fillText(c,i*16,drops[i]*16);if(drops[i]*16>canvas.height&&Math.random()>.975)drops[i]=0;drops[i]++;}}
-setInterval(drawRain, 60);
+let BRL_RATE = 4.98;
+let CURRENCY = 'USD';
+let DATA = null;
 
-function eqClass(eq){ return eq>=75?'eq-high':eq>=50?'eq-mid':'eq-low'; }
-function fmtPnl(v){ const s=v>=0?'+':''; return `<span class="${v>=0?'pos':'neg'}">${s}$${Math.abs(v).toFixed(4)}</span>`; }
-function fmtUsd(v){ return `$${parseFloat(v).toLocaleString('en-US',{maximumFractionDigits:2})}`; }
+// Fetch live rate
+fetch('https://open.er-api.com/v6/latest/USD')
+  .then(r => r.json())
+  .then(d => {
+    BRL_RATE = d.rates.BRL;
+    document.getElementById('rate-display').textContent = BRL_RATE.toFixed(4);
+    if (DATA) renderProjection(DATA);
+  }).catch(() => {
+    document.getElementById('rate-display').textContent = '≈ 4.98';
+  });
 
-fetch('/api/polymarket-backtest').then(r=>{
-  if(!r.ok) throw new Error(r.status);
+function setCurrency(cur) {
+  CURRENCY = cur;
+  document.querySelectorAll('.cur-btn').forEach(b => b.classList.toggle('active', b.textContent === cur));
+  if (DATA) {
+    renderKPIs(DATA);
+    renderProjection(DATA);
+    renderMonthly(DATA);
+    renderTrades(DATA);
+    renderSport(DATA);
+  }
+}
+
+function fmtMoney(usd) {
+  if (CURRENCY === 'BRL') {
+    const brl = usd * BRL_RATE;
+    return 'R$' + brl.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+  return '$' + Math.abs(usd).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+
+function fmtPnl(usd) {
+  const sign = usd >= 0 ? '+' : '-';
+  const cls  = usd >= 0 ? 'c-green' : 'c-red';
+  return `<span class="${cls}">${sign}${fmtMoney(Math.abs(usd))}</span>`;
+}
+
+function eqBadge(eq) {
+  const cls = eq >= 75 ? 'badge-green' : eq >= 50 ? 'badge-yellow' : 'badge-red';
+  return `<span class="badge ${cls}">${eq}%</span>`;
+}
+
+function sportBadge(sport) {
+  const colors = {
+    'NBA':'badge-blue','NFL':'badge-red','NHL':'badge-teal','MLB':'badge-yellow',
+    'Soccer':'badge-green','Esports':'badge-purple','MMA/UFC':'badge-red',
+    'Tennis':'badge-green','Golf':'badge-gray','Formula 1':'badge-red',
+    'Politics':'badge-yellow','Other':'badge-gray'
+  };
+  return `<span class="badge ${colors[sport]||'badge-gray'}">${sport}</span>`;
+}
+
+function renderKPIs(d) {
+  const pos = d.total_pnl >= 0;
+  const kpis = [
+    { label:'Saldo Final',   val: fmtMoney(d.final_bal),               cls:'c-text',   sub: CURRENCY==='BRL'?'':'Starting: $1,000' },
+    { label:'PnL Total',     val:(d.total_pnl>=0?'+':'')+fmtMoney(d.total_pnl), cls:pos?'c-green':'c-red', sub:`${d.total_pnl_pct>=0?'+':''}${d.total_pnl_pct.toFixed(2)}% retorno` },
+    { label:'Win Rate',      val:`${d.win_rate}%`,                      cls:d.win_rate>=60?'c-green':'c-yellow', sub:`${d.wins}W / ${d.losses}L` },
+    { label:'Trades',        val:`${d.wins+d.losses}`,                  cls:'c-blue',   sub:`${(d.wins+d.losses)/90|0}~${((d.wins+d.losses)/53)|0}/dia` },
+    { label:'Max Drawdown',  val:`-${d.max_drawdown}%`,                 cls:'c-red',    sub:'pior sequência' },
+    { label:'Top Wallets',   val:`${(d.top_wallets||[]).length}`,        cls:'c-purple', sub:'monitorados' },
+    { label:'Pico de Equity',val: fmtMoney(d.max_bal),                  cls:'c-green',  sub:'máximo histórico' },
+    { label:'Avg Win/Trade', val: fmtMoney(d.wins>0 ? d.trades.filter(t=>t.pnl>0).reduce((a,t)=>a+t.pnl,0)/d.wins : 0), cls:'c-green', sub:'por trade vencedor' },
+  ];
+  document.getElementById('kpi-grid').innerHTML = kpis.map(k =>
+    `<div class="kpi"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.val}</div><div class="kpi-sub">${k.sub}</div></div>`
+  ).join('');
+}
+
+function renderProjection(d) {
+  const caps = [500, 1000, 2000, 5000, 10000, 25000];
+  const scale = d.total_pnl / 80; // lucro por $1 de alloc
+  document.getElementById('proj-grid').innerHTML = caps.map(cap => {
+    const alloc   = cap * 0.08;
+    const pnl90   = scale * alloc;
+    const pnlMes  = pnl90 / 3;
+    const roi     = (pnl90/cap*100).toFixed(0);
+    const pnlBRL  = pnl90 * BRL_RATE;
+    const mesBRL  = pnlMes * BRL_RATE;
+    const capBRL  = cap * BRL_RATE;
+    return `<div class="proj-item">
+      <div class="proj-cap">${CURRENCY==='BRL'?'R$'+capBRL.toLocaleString('pt-BR',{maximumFractionDigits:0}):'$'+cap.toLocaleString()} capital</div>
+      <div class="proj-usd">${CURRENCY==='BRL'?'R$'+pnlBRL.toLocaleString('pt-BR',{maximumFractionDigits:0}):'$'+pnl90.toLocaleString('en-US',{maximumFractionDigits:0})} <small style="font-size:12px;color:var(--sub)">90d</small></div>
+      <div class="proj-brl">${CURRENCY==='BRL'?'R$'+mesBRL.toLocaleString('pt-BR',{maximumFractionDigits:0}):'$'+pnlMes.toLocaleString('en-US',{maximumFractionDigits:0})}/mês</div>
+      <div class="proj-per">ROI ${roi}% · $${alloc.toFixed(0)}/trade</div>
+    </div>`;
+  }).join('');
+}
+
+function renderMonthly(d) {
+  if (!d.monthly) return;
+  const months = Object.keys(d.monthly).sort();
+  const maxAbs  = Math.max(...months.map(k => Math.abs(d.monthly[k].pnl)), 1);
+  document.getElementById('monthly-body').innerHTML = months.map(k => {
+    const m   = d.monthly[k];
+    const pos = m.pnl >= 0;
+    const w   = Math.round(Math.abs(m.pnl)/maxAbs*100);
+    const color = pos ? 'var(--green)' : 'var(--red)';
+    return `<tr>
+      <td style="font-weight:600">${m.label}</td>
+      <td>${fmtPnl(m.pnl)}</td>
+      <td><span class="c-green">${m.wins}W</span> <span class="c-red">${m.losses}L</span></td>
+      <td style="color:var(--sub)">${m.trades}</td>
+      <td><div class="month-bar-wrap">
+        <div class="month-bar-bg"><div class="month-bar-fill" style="width:${w}%;background:${color}"></div></div>
+        ${m.trades===0?'<span style="color:var(--muted);font-size:10px">sem dados</span>':''}
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderSport(d) {
+  if (!d.sport_pnl) return;
+  const sports = Object.entries(d.sport_pnl).sort((a,b) => b[1].pnl - a[1].pnl);
+  document.getElementById('sport-body').innerHTML = sports.map(([name, s]) => {
+    const wr = s.trades > 0 ? Math.round(s.wins/s.trades*100) : 0;
+    return `<tr>
+      <td>${sportBadge(name)}</td>
+      <td>${fmtPnl(s.pnl)}</td>
+      <td style="color:var(--sub)">${s.trades}</td>
+      <td><span class="${wr>=70?'c-green':wr>=55?'c-yellow':'c-red'}">${wr}%</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderTrades(d) {
+  document.getElementById('trades-count').textContent = `${d.trades.length} trades`;
+  document.getElementById('trades-body').innerHTML = d.trades.map(t => `<tr>
+    <td style="color:var(--sub);white-space:nowrap">${t.ts}</td>
+    <td style="color:var(--blue);font-size:11px">${t.wallet.substring(0,18)}</td>
+    <td style="color:var(--sub);font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.title}</td>
+    <td style="color:var(--muted)">${(t.entry*100).toFixed(1)}¢</td>
+    <td style="color:var(--text)">${(t.exit*100).toFixed(1)}¢</td>
+    <td>${eqBadge(t.exit_quality)}</td>
+    <td>${fmtPnl(t.pnl)}</td>
+  </tr>`).join('');
+}
+
+let equityChart, walletChart, eqChart;
+
+fetch('/api/polymarket-backtest').then(r => {
+  if (!r.ok) throw new Error('rode python3 polymarket_backtest.py primeiro');
   return r.json();
 }).then(d => {
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('main').style.display = 'block';
-  document.getElementById('subtitle').textContent =
-    `BACKTEST ${d.backtest_days || 90} DIAS · ${d.period_start || ''} → ${d.period_end || ''} · EXIT QUALITY COPY TRADE`;
+  DATA = d;
+  document.getElementById('loading-wrap').style.display = 'none';
+  document.getElementById('main-content').style.display = 'block';
+  document.getElementById('period-sub').textContent =
+    `Backtest ${d.backtest_days||90} dias · ${d.period_start||''} → ${d.period_end||''} · Sports Only`;
 
-  const pos = d.total_pnl >= 0;
-  const sign = d.total_pnl >= 0 ? '+' : '';
-
-  // KPIs
-  const kpis = [
-    {label:'SALDO FINAL',   val: fmtUsd(d.final_bal),                         raw: d.total_pnl,     cls: pos?'pos':'neg'},
-    {label:'PnL TOTAL',     val:`${sign}${fmtUsd(d.total_pnl)}`,              raw: d.total_pnl,     cls: pos?'pos':'neg'},
-    {label:'RETORNO %',     val:`${sign}${d.total_pnl_pct.toFixed(2)}%`,       raw: d.total_pnl_pct, cls: pos?'pos':'neg'},
-    {label:'WIN RATE',      val:`${d.win_rate}%`,                              raw: d.win_rate,      cls: d.win_rate>=60?'pos':'neg'},
-    {label:'TRADES',        val:`${d.wins}W / ${d.losses}L`,                  raw: 0,               cls: 'neu'},
-    {label:'MAX DRAWDOWN',  val:`-${d.max_drawdown}%`,                         raw: -1,              cls: 'neg'},
-    {label:'TOP WALLETS',   val:`${d.top_wallets.length}`,                     raw: 0,               cls: 'ylw'},
-    {label:'PICO',          val: fmtUsd(d.max_bal),                            raw: 1,               cls: 'pos'},
-  ];
-  document.getElementById('kpi-grid').innerHTML = kpis.map(k=>
-    `<div class="kpi"><div class="kpi-label">${k.label}</div><div class="kpi-val ${k.cls}">${k.val}</div></div>`
-  ).join('');
+  renderKPIs(d);
+  renderProjection(d);
+  renderMonthly(d);
+  renderSport(d);
+  renderTrades(d);
 
   // Equity chart
   const ec = d.equity_curve;
-  const ecLabels = ec.map(e => new Date(e.ts).toLocaleDateString('pt-BR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}));
-  const ecVals   = ec.map(e => e.bal);
-  new Chart(document.getElementById('equity-chart').getContext('2d'), {
-    type: 'line',
-    data: { labels: ecLabels, datasets: [{
-      data: ecVals, borderColor: pos?'#00ff41':'#ff2222',
-      backgroundColor: pos?'rgba(0,255,65,0.07)':'rgba(255,34,34,0.07)',
+  const ecLabels = ec.map(e => new Date(e.ts).toLocaleDateString('pt-BR',{month:'short',day:'numeric'}));
+  equityChart = new Chart(document.getElementById('equity-chart'), {
+    type:'line',
+    data:{ labels:ecLabels, datasets:[{
+      data: ec.map(e=>e.bal),
+      borderColor:'#10b981', backgroundColor:'rgba(16,185,129,0.06)',
       borderWidth:2, pointRadius:0, tension:0.3, fill:true,
     }]},
     options:{
       responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false}},
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.y.toFixed(2)}}},
       scales:{
-        x:{ticks:{color:'#004400',maxTicksLimit:8,font:{size:9}},grid:{color:'rgba(0,80,0,0.2)'},border:{display:false}},
-        y:{ticks:{color:'#004400',font:{size:9},callback:v=>'$'+v.toFixed(0)},grid:{color:'rgba(0,80,0,0.3)'},border:{display:false}},
+        x:{ticks:{color:'#475569',maxTicksLimit:8,font:{size:10,family:'Inter'}},grid:{color:var_grid()},border:{display:false}},
+        y:{ticks:{color:'#475569',font:{size:10,family:'Inter'},callback:v=>'$'+v.toFixed(0)},grid:{color:var_grid()},border:{display:false}},
       }
     }
   });
 
   // Wallet PnL chart
   const wnames = Object.keys(d.pnl_by_wallet);
-  const wvals  = wnames.map(k => d.pnl_by_wallet[k]);
-  const wcolors = wvals.map(v => v>=0?'rgba(0,255,65,0.7)':'rgba(255,34,34,0.7)');
-  new Chart(document.getElementById('wallet-chart').getContext('2d'), {
-    type: 'bar',
-    data:{ labels: wnames, datasets:[{data:wvals, backgroundColor:wcolors, borderColor:wcolors, borderWidth:1}]},
+  const wvals  = wnames.map(k=>d.pnl_by_wallet[k]);
+  walletChart = new Chart(document.getElementById('wallet-chart'), {
+    type:'bar',
+    data:{ labels:wnames, datasets:[{
+      data:wvals,
+      backgroundColor:wvals.map(v=>v>=0?'rgba(16,185,129,0.6)':'rgba(239,68,68,0.6)'),
+      borderRadius:4, borderSkipped:false,
+    }]},
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{legend:{display:false}},
       scales:{
-        x:{ticks:{color:'#004400',font:{size:8},maxRotation:40},grid:{display:false},border:{display:false}},
-        y:{ticks:{color:'#004400',font:{size:9},callback:v=>'$'+v.toFixed(2)},grid:{color:'rgba(0,80,0,0.3)'},border:{display:false}},
+        x:{ticks:{color:'#475569',font:{size:9,family:'Inter'},maxRotation:35},grid:{display:false},border:{display:false}},
+        y:{ticks:{color:'#475569',font:{size:9,family:'Inter'},callback:v=>'$'+v.toFixed(0)},grid:{color:var_grid()},border:{display:false}},
       }
     }
   });
 
-  // Exit quality distribution chart
-  const eqBuckets = Array(10).fill(0);
-  d.trades.forEach(t => {
-    const b = Math.min(9, Math.floor(t.exit_quality / 10));
-    eqBuckets[b]++;
-  });
-  const eqLabels = ['0-10','10-20','20-30','30-40','40-50','50-60','60-70','70-80','80-90','90-100'];
-  const eqColors = eqBuckets.map((_, i) => i >= 7 ? 'rgba(0,255,65,0.7)' : i >= 5 ? 'rgba(255,204,0,0.6)' : 'rgba(255,34,34,0.5)');
-  new Chart(document.getElementById('eq-chart').getContext('2d'), {
-    type: 'bar',
-    data:{ labels: eqLabels, datasets:[{
-      label:'Trades', data:eqBuckets,
-      backgroundColor: eqColors, borderColor: eqColors, borderWidth:1,
-    }]},
+  // EQ distribution
+  const eqB = Array(10).fill(0);
+  d.trades.forEach(t=>{ const b=Math.min(9,Math.floor(t.exit_quality/10)); eqB[b]++; });
+  eqChart = new Chart(document.getElementById('eq-chart'), {
+    type:'bar',
+    data:{ labels:['0-10','10-20','20-30','30-40','40-50','50-60','60-70','70-80','80-90','90-100'],
+      datasets:[{ data:eqB,
+        backgroundColor:eqB.map((_,i)=>i>=7?'rgba(16,185,129,0.6)':i>=5?'rgba(245,158,11,0.5)':'rgba(239,68,68,0.4)'),
+        borderRadius:4, borderSkipped:false,
+      }]},
     options:{
       responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{display:false},
-        title:{display:true, text:'Exit Quality dos Trades Copiados (%)', color:'#006600', font:{size:11}}},
+      plugins:{legend:{display:false},title:{display:true,text:'Exit Quality dos Trades (%)',color:'#94a3b8',font:{size:12,family:'Inter'}}},
       scales:{
-        x:{ticks:{color:'#004400',font:{size:9}},grid:{display:false},border:{display:false}},
-        y:{ticks:{color:'#004400',font:{size:9}},grid:{color:'rgba(0,80,0,0.3)'},border:{display:false}},
+        x:{ticks:{color:'#475569',font:{size:10,family:'Inter'}},grid:{display:false},border:{display:false}},
+        y:{ticks:{color:'#475569',font:{size:10,family:'Inter'}},grid:{color:var_grid()},border:{display:false}},
       }
     }
   });
 
-  // Monthly breakdown
-  if (d.monthly) {
-    const mb = document.getElementById('monthly-body');
-    const months = Object.keys(d.monthly).sort();
-    const maxAbsPnl = Math.max(...months.map(k => Math.abs(d.monthly[k].pnl)), 1);
-    mb.innerHTML = months.map(k => {
-      const m = d.monthly[k];
-      const s = m.pnl >= 0 ? '+' : '';
-      const cls = m.pnl >= 0 ? 'pos' : 'neg';
-      const barW = Math.round(Math.abs(m.pnl) / maxAbsPnl * 120);
-      const barColor = m.pnl >= 0 ? 'var(--gx)' : 'var(--red)';
-      const icon = m.pnl >= 0 ? '▲' : '▼';
-      return `<tr>
-        <td style="color:#fff;font-weight:bold">${m.label}</td>
-        <td class="${cls}">${s}$${Math.abs(m.pnl).toFixed(2)}</td>
-        <td class="pos">${m.wins}W</td>
-        <td class="neg">${m.losses}L</td>
-        <td class="dim">${m.trades}</td>
-        <td>
-          <span style="display:inline-block;width:${barW}px;height:10px;background:${barColor};border-radius:2px;opacity:0.8;vertical-align:middle"></span>
-          <span style="color:${barColor};margin-left:4px;font-size:10px">${icon}</span>
-          ${m.trades === 0 ? '<span style="color:#003300;font-size:10px"> sem dados</span>' : ''}
-        </td>
-      </tr>`;
-    }).join('');
-  }
-
   // Wallets table
-  const wb = document.getElementById('wallets-body');
-  wb.innerHTML = d.top_wallets.map((w,i) => `<tr>
-    <td class="dim">${i+1}</td>
-    <td style="color:var(--ylw)">${w.username}</td>
-    <td>
-      <span class="eq-badge ${eqClass(w.avg_eq)}">${w.avg_eq}%</span>
-      <span class="eq-bar" style="width:${w.avg_eq}px"></span>
-    </td>
-    <td><span class="eq-badge ${eqClass(w.avg_eq_win)}">${w.avg_eq_win}%</span></td>
-    <td><span class="eq-badge ${eqClass(w.avg_eq_loss)}">${w.avg_eq_loss}%</span></td>
-    <td class="${w.win_rate>=60?'pos':'neg'}">${w.win_rate}%</td>
-    <td class="dim">${w.n_trades}</td>
-    <td class="${w.monthly_pnl>=0?'pos':'neg'}">${w.monthly_pnl>=0?'+':''}${fmtUsd(w.monthly_pnl)}</td>
+  document.getElementById('wallets-body').innerHTML = (d.top_wallets||[]).map((w,i)=>`<tr>
+    <td style="color:var(--muted)">${i+1}</td>
+    <td style="color:var(--blue);font-weight:500">${w.username}</td>
+    <td><div class="eq-bar-wrap">${eqBadge(w.avg_eq)}<div class="eq-bar-bg"><div class="eq-bar-fill" style="width:${w.avg_eq}%;background:${w.avg_eq>=75?'var(--green)':w.avg_eq>=50?'var(--yellow)':'var(--red)'}"></div></div></div></td>
+    <td>${eqBadge(w.avg_eq_win)}</td>
+    <td>${eqBadge(w.avg_eq_loss)}</td>
+    <td class="${w.win_rate>=60?'c-green':'c-yellow'}">${w.win_rate}%</td>
+    <td style="color:var(--sub)">${w.n_trades}</td>
+    <td>${fmtPnl(w.monthly_pnl)}</td>
   </tr>`).join('');
 
-  // Trades table
-  const tb = document.getElementById('trades-body');
-  tb.innerHTML = d.trades.map(t => `<tr>
-    <td class="dim">${t.ts}</td>
-    <td style="color:var(--ylw);font-size:10px">${t.wallet.substring(0,20)}</td>
-    <td style="color:#aaa;font-size:10px">${t.title.substring(0,30)}</td>
-    <td><span class="tag tag-poly">${t.outcome.substring(0,8)}</span></td>
-    <td class="dim">${(t.entry*100).toFixed(1)}¢</td>
-    <td style="color:#aaa">${(t.exit*100).toFixed(1)}¢</td>
-    <td><span class="eq-badge ${eqClass(t.exit_quality)}">${t.exit_quality}%</span></td>
-    <td>${fmtPnl(t.pnl)}</td>
-    <td class="dim">$${t.balance.toFixed(2)}</td>
-  </tr>`).join('');
+  document.getElementById('equity-meta').textContent =
+    `$${d.starting_bal.toLocaleString()} → $${d.final_bal.toLocaleString('en-US',{maximumFractionDigits:0})}`;
 
 }).catch(err => {
-  document.getElementById('loading').innerHTML =
-    `<div style="color:var(--red)">ERRO: ${err.message}<br><br>
-    <span style="color:var(--g3)">Execute: python3 polymarket_backtest.py</span></div>`;
+  document.getElementById('loading-wrap').innerHTML =
+    `<div style="text-align:center"><div style="color:var(--red);font-size:15px;margin-bottom:8px">Backtest não encontrado</div>
+    <div style="color:var(--sub)">Execute: <code style="background:var(--card);padding:4px 8px;border-radius:6px">python3 polymarket_backtest.py</code></div></div>`;
 });
+
+function var_grid(){ return 'rgba(30,45,74,0.6)'; }
 </script>
 </body>
 </html>

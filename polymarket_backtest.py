@@ -35,6 +35,44 @@ BACKTEST_DAYS      = 90            # janela do backtest em dias
 HEADERS    = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
 DATA_API   = "https://data-api.polymarket.com"
 
+CRYPTO_ONLY  = False  # False = todos os mercados
+SPORTS_ONLY  = True   # True = exclui cripto, mantém esportes/outros
+
+import re as _re
+
+# Palavras-chave que precisam de word boundary para evitar falsos positivos
+CRYPTO_KEYWORDS = {
+    "BTC":   r"\b(bitcoin|btc)\b",
+    "ETH":   r"\b(ethereum|eth|ether)\b",
+    "SOL":   r"\b(solana|sol)\b",
+    "HYPE":  r"\b(hyperliquid|hype)\b",
+    "XRP":   r"\b(xrp|ripple)\b",
+    "BNB":   r"\b(bnb|binance)\b",
+    "DOGE":  r"\b(doge|dogecoin)\b",
+    "AVAX":  r"\b(avax|avalanche)\b",
+    "LINK":  r"\b(chainlink)\b",
+    "SUI":   r"\b(sui)\b",
+    "ADA":   r"\b(cardano|ada)\b",
+    "DOT":   r"\b(polkadot)\b",
+    "MATIC": r"\b(matic|polygon)\b",
+    "OP":    r"\b(optimism)\b",
+    "ARB":   r"\b(arbitrum)\b",
+    "TON":   r"\b(toncoin)\b",
+    "TRX":   r"\b(tron|trx)\b",
+    "LTC":   r"\b(litecoin|ltc)\b",
+    "ATOM":  r"\b(cosmos|atom)\b",
+    "NEAR":  r"\b(near protocol|near)\b",
+    "PEPE":  r"\b(pepe)\b",
+    "WIF":   r"\b(dogwifhat|wif)\b",
+    "SHIB":  r"\b(shiba|shib)\b",
+}
+
+_CRYPTO_RE = _re.compile("|".join(CRYPTO_KEYWORDS.values()), _re.IGNORECASE)
+
+def is_crypto_market(title, slug):
+    text = title + " " + slug
+    return bool(_CRYPTO_RE.search(text))
+
 
 # ── Coleta de dados ───────────────────────────────────────────────────────────
 
@@ -225,6 +263,12 @@ for w in top_wallets:
         ts = pos.get("timestamp", 0)
         if not ts or ts < BACKTEST_CUTOFF:
             continue
+        title_pos = pos.get("title", "")
+        slug_pos  = pos.get("slug", "")
+        if CRYPTO_ONLY  and not is_crypto_market(title_pos, slug_pos):
+            continue
+        if SPORTS_ONLY  and is_crypto_market(title_pos, slug_pos):
+            continue
         eq, kind = calc_exit_quality(pos)
         if eq is None or kind not in ("win", "loss"):
             continue
@@ -327,6 +371,41 @@ for t in trades:
 best  = max(trades, key=lambda t: t["pnl"]) if trades else None
 worst = min(trades, key=lambda t: t["pnl"]) if trades else None
 
+# ── Categorização por esporte ─────────────────────────────────────────────────
+SPORT_PATTERNS = [
+    ("NBA",       _re.compile(r"\b(nba|lakers|celtics|warriors|heat|bulls|nets|knicks|bucks|nuggets|suns|mavs|mavericks|clippers|76ers|sixers|raptors|pacers|hawks|magic|hornets|pistons|cavaliers|thunder|blazers|jazz|kings|spurs|rockets|grizzlies|pelicans|timberwolves)\b", _re.I)),
+    ("NFL",       _re.compile(r"\b(nfl|super bowl|chiefs|eagles|cowboys|patriots|49ers|packers|steelers|ravens|bills|bengals|broncos|chargers|raiders|dolphins|jets|giants|commanders|saints|buccaneers|falcons|panthers|bears|lions|vikings|seahawks|rams|cardinals|titans|colts|jaguars|texans)\b", _re.I)),
+    ("NHL",       _re.compile(r"\b(nhl|stanley cup|avalanche|penguins|capitals|bruins|maple leafs|canadiens|rangers|devils|flyers|sabres|senators|lightning|panthers|hurricanes|red wings|predators|blues|blackhawks|wild|jets|flames|oilers|canucks|kraken|sharks|ducks|coyotes|kings|stars)\b", _re.I)),
+    ("MLB",       _re.compile(r"\b(mlb|world series|yankees|red sox|dodgers|giants|cubs|astros|mets|braves|cardinals|phillies|padres|brewers|reds|pirates|rockies|diamondbacks|mariners|athletics|rangers|angels|blue jays|rays|orioles|twins|white sox|guardians|royals|tigers|nationals|marlins)\b", _re.I)),
+    ("Soccer",    _re.compile(r"\b(soccer|football|champions league|premier league|la liga|bundesliga|serie a|ligue 1|fifa|world cup|euro|copa|mls|arsenal|chelsea|liverpool|manchester|barcelona|real madrid|juventus|psg|bayern|dortmund|ajax|porto|benfica|cl |ucl)\b", _re.I)),
+    ("Tennis",    _re.compile(r"\b(tennis|atp|wta|wimbledon|us open|french open|australian open|grand slam|djokovic|federer|nadal|alcaraz|sinner|swiatek|sabalenka)\b", _re.I)),
+    ("MMA/UFC",   _re.compile(r"\b(ufc|mma|boxing|fight|bout|knockout|ko|tko|heavyweight|lightweight|welterweight|middleweight|featherweight|bantamweight)\b", _re.I)),
+    ("Esports",   _re.compile(r"\b(esports|e-sports|dota|csgo|cs2|valorant|league of legends|lol|overwatch|fortnite|pubg|starcraft|gaming|esl|faceit)\b", _re.I)),
+    ("Politics",  _re.compile(r"\b(election|president|senate|congress|democrat|republican|vote|poll|trump|biden|harris|governor|primary|ballot)\b", _re.I)),
+    ("Golf",      _re.compile(r"\b(golf|pga|masters|open championship|ryder cup|tiger woods|mcilroy)\b", _re.I)),
+    ("Formula 1", _re.compile(r"\b(formula 1|f1|grand prix|verstappen|hamilton|ferrari|mercedes|red bull racing|mclaren|alpine|gp)\b", _re.I)),
+]
+
+def classify_sport(title, slug):
+    text = title + " " + slug
+    for name, pat in SPORT_PATTERNS:
+        if pat.search(text):
+            return name
+    return "Other"
+
+for t in trades:
+    t["sport"] = classify_sport(t["title"], t.get("slug", ""))
+
+sport_pnl   = defaultdict(float)
+sport_count = defaultdict(int)
+sport_wins  = defaultdict(int)
+for t in trades:
+    s = t["sport"]
+    sport_pnl[s]   += t["pnl"]
+    sport_count[s] += 1
+    if t["pnl"] > 0:
+        sport_wins[s] += 1
+
 # ── Breakdown mensal ──────────────────────────────────────────────────────────
 from collections import defaultdict as _dd
 monthly_pnl   = _dd(float)
@@ -356,7 +435,8 @@ while cur <= end_dt:
     cur = cur.replace(month=cur.month % 12 + 1, year=cur.year + (1 if cur.month == 12 else 0))
 
 result = {
-    "strategy":        "Polymarket Exit Quality Copy Trade",
+    "strategy":        "Polymarket Exit Quality Copy Trade — Sports Only" if SPORTS_ONLY else ("Polymarket Exit Quality Copy Trade — Crypto Only" if CRYPTO_ONLY else "Polymarket Exit Quality Copy Trade"),
+    "sport_pnl":       {k: {"pnl": round(v, 4), "trades": sport_count[k], "wins": sport_wins[k]} for k, v in sport_pnl.items()},
     "starting_bal":    STARTING_BAL,
     "final_bal":       round(balance, 4),
     "total_pnl":       round(total_pnl, 4),
@@ -420,5 +500,10 @@ print(f"\n  PnL por wallet:")
 for wlt, pnl in sorted(pnl_by_wallet.items(), key=lambda x: -x[1]):
     s = "+" if pnl >= 0 else ""
     print(f"    {wlt:<30}  {s}${pnl:.4f}  ({count_by_wallet[wlt]} trades)")
+print(f"\n  PnL por categoria de esporte:")
+for sp, pnl in sorted(sport_pnl.items(), key=lambda x: -x[1]):
+    wr = sport_wins[sp] / sport_count[sp] * 100 if sport_count[sp] else 0
+    s  = "+" if pnl >= 0 else ""
+    print(f"    {sp:<14}  {s}${pnl:>8.2f}  {sport_count[sp]:3d} trades  WR={wr:.0f}%")
 print(f"{'═'*65}")
 print(f"\n  Salvo em /tmp/polymarket_backtest.json")
