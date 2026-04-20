@@ -3,12 +3,20 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
+<meta name="app-version" content="20260419-2"/>
 <title>Polymarket · Quantex</title>
+<script>(function(){var V='20260419-2';if(localStorage.getItem('qx_v')!==V){localStorage.setItem('qx_v',V);location.reload(true);}})()</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
 :root {
+  --sidebar-w:   220px;
+  --sidebar-col: 64px;
+  --mono:     'JetBrains Mono', monospace;
   --black:    #000000;
   --card:     rgba(255,255,255,0.03);
   --card-h:   rgba(255,255,255,0.05);
@@ -34,29 +42,41 @@ html { scroll-behavior:smooth; }
 body {
   background: var(--black);
   color: var(--white);
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
   min-height: 100vh;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
 }
 
-/* ── Stars ── */
-#stars {
-  position: fixed; width:1px; height:1px; top:0; left:0;
-  z-index: 0; pointer-events: none;
-  border-radius: 50%;
-}
 
-/* ── Topnav ── */
-.topnav {
-  position: fixed; top:0; left:0; right:0; height:64px; z-index:100;
-  background: rgba(0,0,0,0.8);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 40px;
-}
+/* ── Sidebar ── */
+.sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: var(--sidebar-w); z-index: 200; background: rgba(0,0,0,0.84); backdrop-filter: blur(32px); -webkit-backdrop-filter: blur(32px); border-right: 1px solid rgba(255,255,255,0.055); display: flex; flex-direction: column; transition: width 0.25s cubic-bezier(0.4,0,0.2,1); overflow: hidden; }
+.sidebar.collapsed { width: var(--sidebar-col); }
+.sidebar-logo { height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 20px; border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; overflow: hidden; white-space: nowrap; }
+.sidebar-logo-mark { width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0; background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; box-shadow: 0 0 16px rgba(37,99,235,0.4); }
+.sidebar-logo-text { font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #f8fafc; transition: opacity 0.2s; }
+.sidebar.collapsed .sidebar-logo-text { opacity: 0; pointer-events: none; }
+.sidebar-nav { flex: 1; padding: 12px 0; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 20px; color: rgba(248,250,252,0.28); text-decoration: none; font-size: 13px; font-weight: 500; border-left: 2px solid transparent; white-space: nowrap; overflow: hidden; transition: color 0.15s, background 0.15s, border-color 0.15s; }
+.nav-item:hover { color: rgba(248,250,252,0.55); background: rgba(255,255,255,0.04); }
+.nav-item.active { color: #f8fafc; background: rgba(37,99,235,0.1); border-left-color: #2563eb; }
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.nav-label { font-size: 13px; font-weight: 500; transition: opacity 0.2s; }
+.sidebar.collapsed .nav-label { opacity: 0; pointer-events: none; }
+.sidebar.collapsed .nav-item { padding: 10px 23px; }
+.nav-section-label { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(255,255,255,0.18); padding: 10px 22px 4px; white-space: nowrap; overflow: hidden; transition: opacity 0.2s; }
+.sidebar.collapsed .nav-section-label { opacity: 0; }
+.sidebar-toggle { height: 52px; display: flex; align-items: center; padding: 0 20px; border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; cursor: pointer; color: rgba(248,250,252,0.28); gap: 12px; overflow: hidden; transition: color 0.15s; }
+.sidebar-toggle:hover { color: rgba(248,250,252,0.55); }
+.sidebar-toggle svg { width: 18px; height: 18px; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.25s; }
+.sidebar.collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+.sidebar-toggle-label { font-size: 12px; font-weight: 500; transition: opacity 0.2s; white-space: nowrap; }
+.sidebar.collapsed .sidebar-toggle-label { opacity: 0; pointer-events: none; }
+
+/* ── Topnav (hidden, replaced by sidebar) ── */
+.topnav { display: none; }
 .logo {
   font-size: 16px; font-weight: 700; letter-spacing: 3px;
   color: var(--white); text-decoration: none;
@@ -76,8 +96,9 @@ body {
 }
 
 /* ── Page ── */
-.page { position:relative; z-index:1; padding-top:64px; min-height:100vh; }
-.container { max-width:1400px; margin:0 auto; padding:48px 40px; }
+.page { position:relative; z-index:1; min-height:100vh; margin-left:var(--sidebar-w); transition:margin-left 0.25s cubic-bezier(0.4,0,0.2,1); }
+.page.collapsed { margin-left:var(--sidebar-col); }
+.container { max-width:1400px; margin:0 auto; padding:40px 40px; }
 
 /* ── Page header ── */
 .page-header { margin-bottom:48px; }
@@ -221,20 +242,32 @@ tbody tr:hover td { background:rgba(255,255,255,.025); }
 </head>
 <body>
 
-<div id="stars"></div>
 
-<!-- Topnav -->
-<nav class="topnav">
-  <a class="logo" href="/">QUANT<span>EX</span></a>
-  <div class="nav-links">
-    <a class="nav-link" href="/">Dashboard</a>
-    <a class="nav-link" href="/backtest">Backtest HL</a>
-    <a class="nav-link active" href="/polymarket">Polymarket</a>
-    <a class="nav-link" href="/hybrid">Hybrid Monitor</a>
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="sidebar-logo-mark">Q</div>
+    <span class="sidebar-logo-text">QUANTEX</span>
   </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section-label">Monitor</div>
+    <a class="nav-item" href="/"><svg viewBox="0 0 20 20"><rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/><rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/></svg><span class="nav-label">Dashboard</span></a>
+    <a class="nav-item" href="/hybrid"><svg viewBox="0 0 20 20"><polyline points="2,13 5,8 8,11 11,4 14,9 17,6"/></svg><span class="nav-label">Hybrid Monitor</span></a>
+    <div class="nav-section-label">Análise</div>
+    <a class="nav-item" href="/backtest"><svg viewBox="0 0 20 20"><rect x="2" y="12" width="3" height="6" rx="1"/><rect x="7" y="7" width="3" height="11" rx="1"/><rect x="12" y="9" width="3" height="9" rx="1"/><rect x="17" y="3" width="1" height="15" rx="0.5"/></svg><span class="nav-label">Backtest HL</span></a>
+    <a class="nav-item active" href="/polymarket"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><circle cx="10" cy="10" r="3.5"/><line x1="10" y1="2.5" x2="10" y2="17.5"/><line x1="2.5" y1="10" x2="17.5" y2="10"/></svg><span class="nav-label">Polymarket</span></a>
+  </nav>
+  <div class="sidebar-toggle" id="sidebar-toggle">
+    <svg viewBox="0 0 20 20"><polyline points="13,5 7,10 13,15"/></svg>
+    <span class="sidebar-toggle-label">Recolher</span>
+  </div>
+</aside>
+
+<!-- topnav placeholder (hidden) -->
+<nav class="topnav">
+  <div class="nav-links">
 </nav>
 
-<div class="page">
+<div class="page" id="page-main">
 <div class="container">
 
   <!-- Header -->
@@ -343,13 +376,8 @@ tbody tr:hover td { background:rgba(255,255,255,.025); }
 </div><!-- /page -->
 
 <script>
-// ── Stars ──────────────────────────────────────────────────────────────────
-(function(){
-  const s = document.getElementById('stars');
-  s.style.boxShadow = Array.from({length:220}, ()=>
-    `${(Math.random()*100).toFixed(2)}vw ${(Math.random()*100).toFixed(2)}vh 0 0 rgba(255,255,255,${(Math.random()*.45+.05).toFixed(2)})`
-  ).join(',');
-})();
+// ── Neural background ────────────────────────────────────────────────────────
+document.getElementById('sidebar-toggle').addEventListener('click',()=>{document.getElementById('sidebar').classList.toggle('collapsed');document.getElementById('page-main').classList.toggle('collapsed');});
 
 // ── Currency ───────────────────────────────────────────────────────────────
 let BRL_RATE = 4.98;
@@ -527,8 +555,8 @@ fetch('/api/polymarket-backtest').then(r=>{
         borderWidth:2,pointRadius:0,tension:0.4,fill:true}]},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'$'+c.parsed.y.toFixed(2)}}},
-      scales:{x:{ticks:{color:T,maxTicksLimit:8,font:{size:11,family:'Space Grotesk'}},grid:{color:G},border:{display:false}},
-        y:{ticks:{color:T,font:{size:11,family:'Space Grotesk'},callback:v=>'$'+v.toFixed(0)},grid:{color:G},border:{display:false}}}}
+      scales:{x:{ticks:{color:T,maxTicksLimit:8,font:{size:11,family:'Inter'}},grid:{color:G},border:{display:false}},
+        y:{ticks:{color:T,font:{size:11,family:'Inter'},callback:v=>'$'+v.toFixed(0)},grid:{color:G},border:{display:false}}}}
   });
 
   // Wallet PnL
@@ -540,8 +568,8 @@ fetch('/api/polymarket-backtest').then(r=>{
       borderRadius:6,borderSkipped:false}]},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{display:false}},
-      scales:{x:{ticks:{color:T,font:{size:10,family:'Space Grotesk'},maxRotation:30},grid:{display:false},border:{display:false}},
-        y:{ticks:{color:T,font:{size:10,family:'Space Grotesk'},callback:v=>'$'+v.toFixed(0)},grid:{color:G},border:{display:false}}}}
+      scales:{x:{ticks:{color:T,font:{size:10,family:'Inter'},maxRotation:30},grid:{display:false},border:{display:false}},
+        y:{ticks:{color:T,font:{size:10,family:'Inter'},callback:v=>'$'+v.toFixed(0)},grid:{color:G},border:{display:false}}}}
   });
 
   // EQ distribution
@@ -554,9 +582,9 @@ fetch('/api/polymarket-backtest').then(r=>{
         backgroundColor:eqB.map((_,i)=>i>=7?'rgba(0,230,118,0.6)':i>=5?'rgba(255,214,10,0.5)':'rgba(255,59,48,0.4)'),
         borderRadius:6,borderSkipped:false}]},
     options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},title:{display:true,text:'Exit Quality dos Trades (%)',color:T,font:{size:12,family:'Space Grotesk'}}},
-      scales:{x:{ticks:{color:T,font:{size:10,family:'Space Grotesk'}},grid:{display:false},border:{display:false}},
-        y:{ticks:{color:T,font:{size:10,family:'Space Grotesk'}},grid:{color:G},border:{display:false}}}}
+      plugins:{legend:{display:false},title:{display:true,text:'Exit Quality dos Trades (%)',color:T,font:{size:12,family:'Inter'}}},
+      scales:{x:{ticks:{color:T,font:{size:10,family:'Inter'}},grid:{display:false},border:{display:false}},
+        y:{ticks:{color:T,font:{size:10,family:'Inter'}},grid:{color:G},border:{display:false}}}}
   });
 
   // Wallets table

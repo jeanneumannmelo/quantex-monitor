@@ -16,6 +16,7 @@ import websockets
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 from hybrid_monitor import start_monitor, get_state as hybrid_get_state
+import polymarket_live as pm_live
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,17 @@ STARTING_BAL  = 2008.0   # R$10.000 @ 4.98 BRL/USD
 MAX_POS_PCT   = 0.08
 MAX_POSITIONS = 12        # cobre 100% do capital em posições simultâneas
 MIN_COPY_WR   = 85  # só copia traders com win rate >= 85%
+
+# ── Risk Management ───────────────────────────────────────────────────────────
+STOP_LOSS_PCT          = -0.06    # -6% unrealized → fecha automático
+PREFIX_BLACKLIST        = ("xyz:", "flx:")  # bloqueia commodities exóticos
+MIN_CONVERGENCE         = 2       # mínimo 2 traders na mesma direção em 120s
+MAX_HOLD_HOURS          = 24      # força fechamento após 24h
+CIRCUIT_BREAKER_DROP    = -0.12   # -12% equity pausa novas cópias
+CIRCUIT_BREAKER_RESUME  = -0.08   # retoma acima de -8%
+TRAILING_LOCK_PCT       = 0.08    # +8% lucro ativa trailing
+TRAILING_FLOOR_OFFSET   = 0.007   # floor perto do breakeven (0.7% acima da entrada LONG)
+LOSS_COOLDOWN_SECS      = 1800    # 30 min cooldown por coin:side após loss
 
 TOP_TRADERS = [
     {"addr": "0xa5b0edf6b55128e0ddae8e51ac538c3188401d41", "label": "ETH-KING",   "pnl": 19_756_455, "wr": 100},
@@ -57,6 +69,8 @@ state = {
     "wins":          0,
     "losses":        0,
     "ws_ok":         False,
+    "paused":        False,
+    "loss_cooldown": {},
 }
 lock = threading.Lock()
 
@@ -93,7 +107,25 @@ def try_copy_trade(fill, trader):
     side    = "LONG" if "Long" in direction else "SHORT"
     pos_key = f"{coin}:{side}"
 
+    # V2: bloquear prefixos de commodities/exóticos
+    if any(coin.lower().startswith(p) for p in PREFIX_BLACKLIST):
+        return
+
     with lock:
+        # V3: convergência mínima — contar traders únicos em 120s
+        now_ms = time.time() * 1000
+        fresh  = [e for e in state["recent_opens"].get(pos_key, []) if now_ms - e["ts"] < 120_000]
+        if len(fresh) < MIN_CONVERGENCE:
+            return
+
+        # V5: circuit breaker
+        if state["paused"]:
+            return
+
+        # V7: cooldown após loss neste par
+        if time.time() - state["loss_cooldown"].get(pos_key, 0) < LOSS_COOLDOWN_SECS:
+            return
+
         if pos_key in state["positions"] or len(state["positions"]) >= MAX_POSITIONS:
             return
         alloc = round(state["balance"] * MAX_POS_PCT, 2)
@@ -104,6 +136,8 @@ def try_copy_trade(fill, trader):
             "coin": coin, "side": side,
             "entry_px": px, "size_usd": alloc,
             "trader": trader["label"], "ts": fill["time"],
+            "open_ts": time.time(),     # V4: para max hold
+            "locked_floor": None,       # V6: trailing profit lock
         }
         state["copy_count"] += 1
         state["last_prices"][coin] = px
@@ -222,7 +256,7 @@ def build_state():
     for key, entries in r_opens.items():
         fresh = [e for e in entries if now_ms - e["ts"] < 120_000]
         if len(fresh) >= 2:
-            coin, side = key.split(":")
+            coin, side = key.rsplit(":", 1)
             patterns.append({
                 "coin": coin, "side": side, "n": len(fresh),
                 "traders": [e["trader"] for e in fresh],
@@ -249,12 +283,119 @@ def build_state():
         "losses":       losses,
         "patterns":     patterns[:3],
         "traders":      traders,
+        "paused":       state["paused"],
     }
+
+
+def price_updater():
+    """Busca allMids da Hyperliquid a cada 2s e atualiza last_prices."""
+    while True:
+        try:
+            payload = json.dumps({"type": "allMids"}).encode()
+            req = urllib.request.Request(
+                REST_URL, data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as r:
+                mids = json.loads(r.read())
+            with lock:
+                for coin, px_str in mids.items():
+                    try:
+                        state["last_prices"][coin] = float(px_str)
+                    except (ValueError, TypeError):
+                        pass
+        except Exception:
+            pass
+        time.sleep(2)
 
 
 def state_broadcaster():
     while True:
         try:
+            with lock:
+                bal            = state["balance"]
+                positions_snap = dict(state["positions"])
+                last_px        = dict(state["last_prices"])
+
+            now_sec = time.time()
+            to_close = []  # (pos_key, reason)
+
+            for pos_key, pos in positions_snap.items():
+                cur = last_px.get(pos["coin"], pos["entry_px"])
+                if pos["side"] == "LONG":
+                    pnl_pct = (cur - pos["entry_px"]) / pos["entry_px"]
+                else:
+                    pnl_pct = (pos["entry_px"] - cur) / pos["entry_px"]
+
+                # V1: stop-loss -6%
+                if pnl_pct <= STOP_LOSS_PCT:
+                    to_close.append((pos_key, "stop_loss"))
+                    continue
+
+                # V4: max hold 24h
+                open_ts = pos.get("open_ts", now_sec)
+                if (now_sec - open_ts) >= MAX_HOLD_HOURS * 3600:
+                    to_close.append((pos_key, "max_hold"))
+                    continue
+
+                # V6: trailing profit lock
+                locked_floor = pos.get("locked_floor")
+                if locked_floor is None and pnl_pct >= TRAILING_LOCK_PCT:
+                    floor = pos["entry_px"] * (1 + TRAILING_FLOOR_OFFSET) if pos["side"] == "LONG" else \
+                            pos["entry_px"] * (1 - TRAILING_FLOOR_OFFSET)
+                    with lock:
+                        if pos_key in state["positions"]:
+                            state["positions"][pos_key]["locked_floor"] = floor
+                elif locked_floor is not None:
+                    breached = (pos["side"] == "LONG" and cur < locked_floor) or \
+                               (pos["side"] == "SHORT" and cur > locked_floor)
+                    if breached:
+                        to_close.append((pos_key, "trailing_stop"))
+
+            for pos_key, reason in to_close:
+                with lock:
+                    if pos_key in state["positions"]:
+                        _settle_position(pos_key)
+                coin, side = pos_key.split(":", 1)
+                sio.emit("feed", {
+                    "type": reason, "ts": datetime.now(tz=timezone.utc).strftime("%H:%M:%S"),
+                    "coin": coin, "side": side, "reason": reason.replace("_", " "),
+                })
+
+            # Re-snapshot after closes for accurate equity
+            with lock:
+                bal2 = state["balance"]
+                pos2 = dict(state["positions"])
+                px2  = dict(state["last_prices"])
+
+            unrealized = 0.0
+            for pos in pos2.values():
+                cur = px2.get(pos["coin"], pos["entry_px"])
+                pnl = pos["size_usd"] * (cur - pos["entry_px"]) / pos["entry_px"] if pos["side"] == "LONG" else \
+                      pos["size_usd"] * (pos["entry_px"] - cur) / pos["entry_px"]
+                unrealized += pnl
+            locked_val = sum(p["size_usd"] for p in pos2.values())
+            equity = bal2 + locked_val + unrealized
+            equity_pnl = round(equity - STARTING_BAL, 2)
+
+            # V5: circuit breaker
+            equity_drop_pct = (equity - STARTING_BAL) / STARTING_BAL
+            with lock:
+                if not state["paused"] and equity_drop_pct <= CIRCUIT_BREAKER_DROP:
+                    state["paused"] = True
+                    sio.emit("feed", {
+                        "type": "circuit_breaker", "ts": datetime.now(tz=timezone.utc).strftime("%H:%M:%S"),
+                        "reason": f"Circuit breaker: equity caiu {equity_drop_pct*100:.1f}%",
+                    })
+                elif state["paused"] and equity_drop_pct > CIRCUIT_BREAKER_RESUME:
+                    state["paused"] = False
+                    sio.emit("feed", {
+                        "type": "circuit_breaker_resume", "ts": datetime.now(tz=timezone.utc).strftime("%H:%M:%S"),
+                        "reason": "Circuit breaker levantado, retomando cópias",
+                    })
+
+            with lock:
+                state["pnl_history"].append(equity_pnl)
             sio.emit("state", build_state())
         except Exception:
             pass
@@ -385,6 +526,109 @@ def api_hybrid():
     from flask import jsonify
     return jsonify(hybrid_get_state())
 
+def _settle_position(pos_key):
+    """Settle a paper position at current market price. Must be called with lock held."""
+    pos = state["positions"].pop(pos_key)
+    cur = state["last_prices"].get(pos["coin"], pos["entry_px"])
+    pnl = pos["size_usd"] * (cur - pos["entry_px"]) / pos["entry_px"] if pos["side"] == "LONG" else \
+          pos["size_usd"] * (pos["entry_px"] - cur) / pos["entry_px"]
+    state["balance"] += pos["size_usd"] + pnl
+    ts_str = datetime.now(tz=timezone.utc).strftime("%H:%M:%S")
+    state["closed_trades"].appendleft({
+        "ts": ts_str, "coin": pos["coin"], "side": pos["side"],
+        "entry": pos["entry_px"], "exit": cur, "pnl": round(pnl, 4),
+        "trader": pos.get("trader", "manual"),
+    })
+    if pnl > 0:
+        state["wins"] += 1
+    else:
+        state["losses"] += 1
+        state["loss_cooldown"][pos_key] = time.time()  # V7: cooldown após loss
+    return round(pnl, 2)
+
+
+@app.route("/api/close/<path:pos_key>", methods=["POST"])
+def api_close_position(pos_key):
+    from flask import jsonify
+    with lock:
+        if pos_key not in state["positions"]:
+            return jsonify({"error": "position not found"}), 404
+        pnl = _settle_position(pos_key)
+    return jsonify({"ok": True, "pnl": pnl})
+
+
+@app.route("/api/close-all", methods=["POST"])
+def api_close_all():
+    from flask import jsonify
+    closed = []
+    with lock:
+        for pos_key in list(state["positions"].keys()):
+            pnl = _settle_position(pos_key)
+            closed.append({"key": pos_key, "pnl": pnl})
+    return jsonify({"ok": True, "closed": closed})
+
+
+CONFIG_PATH = "/Users/mac/matrix_dashboard/config.json"
+
+def load_config():
+    import os
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    return {
+        "hl_address": "", "hl_private_key": "", "starting_balance": STARTING_BAL,
+        "pm_private_key": "", "pm_address": "",
+    }
+
+
+@app.route("/api/config", methods=["GET", "POST"])
+def api_config():
+    from flask import request, jsonify
+    if request.method == "GET":
+        cfg = load_config()
+        cfg.pop("hl_private_key", None)
+        cfg.pop("pm_private_key", None)
+        return jsonify(cfg)
+    data = request.get_json(force=True) or {}
+    cfg = load_config()
+    for k in ("hl_address", "hl_private_key", "starting_balance", "pm_private_key", "pm_address"):
+        if k in data:
+            cfg[k] = data[k]
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/pm/state")
+def api_pm_state():
+    from flask import jsonify
+    return jsonify(pm_live.get_pm_state())
+
+
+@app.route("/api/pm/wallets")
+def api_pm_wallets():
+    from flask import jsonify
+    wallets = pm_live.fetch_top_wallets(20)
+    return jsonify(wallets)
+
+
+@app.route("/api/pm/connect", methods=["POST"])
+def api_pm_connect():
+    """Conecta conta Polymarket em tempo de execução (sem reiniciar)."""
+    from flask import request, jsonify
+    data = request.get_json(force=True) or {}
+    key  = data.get("private_key", "")
+    if not key:
+        return jsonify({"error": "private_key obrigatório"}), 400
+    # Salva no config
+    cfg = load_config()
+    cfg["pm_private_key"] = key
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+    ok = pm_live.init(sio, key)
+    return jsonify({"connected": ok, "state": pm_live.get_pm_state()})
+
+
 @app.route("/api/polymarket-backtest")
 def api_polymarket_backtest():
     import os
@@ -403,8 +647,14 @@ if __name__ == "__main__":
 
     threading.Thread(target=start_ws, daemon=True).start()
     threading.Thread(target=polling_thread, daemon=True).start()
+    threading.Thread(target=price_updater, daemon=True).start()
     threading.Thread(target=state_broadcaster, daemon=True).start()
     start_monitor()
+
+    # ── Polymarket Live ────────────────────────────────────────────────────────
+    cfg = load_config()
+    pm_key = cfg.get("pm_private_key", "")
+    pm_live.start_pm_live(sio, pm_key)
 
     print("\n  ▓▓▓  HYPERLIQUID MATRIX COPY TRADER  ▓▓▓")
     print("  Dashboard: http://localhost:5000\n")

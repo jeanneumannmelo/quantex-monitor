@@ -3,117 +3,107 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
+<meta name="app-version" content="20260419-2"/>
 <title>Backtest — QUANTEX</title>
+<script>(function(){var V='20260419-2';if(localStorage.getItem('qx_v')!==V){localStorage.setItem('qx_v',V);location.reload(true);}})()</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
+  --sidebar-w:   220px;
+  --sidebar-col: 64px;
   --black:    #000000;
   --card:     rgba(255,255,255,0.03);
   --card-h:   rgba(255,255,255,0.055);
   --border:   rgba(255,255,255,0.07);
-  --border-h: rgba(255,255,255,0.15);
-  --blue:     #0066ff;
-  --green:    #00e676;
-  --red:      #ff3b30;
-  --yellow:   #ffd60a;
-  --purple:   #bf5fff;
-  --white:    #ffffff;
-  --silver:   rgba(255,255,255,0.6);
-  --muted:    rgba(255,255,255,0.3);
+  --border-h: rgba(255,255,255,0.14);
+  --blue:     #2563eb;
+  --green:    #10b981;
+  --red:      #ef4444;
+  --yellow:   #f59e0b;
+  --purple:   #8b5cf6;
+  --white:    #f8fafc;
+  --silver:   rgba(248,250,252,0.55);
+  --muted:    rgba(248,250,252,0.28);
+  --mono:     'JetBrains Mono', monospace;
 }
 
 html, body {
   height: 100%;
   background: #000;
   color: var(--white);
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 14px;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* ── Stars ── */
-#stars {
-  position: fixed;
-  width: 1px;
-  height: 1px;
-  top: 0;
-  left: 0;
-  z-index: 0;
-  pointer-events: none;
-}
-
-/* ── Top Nav ── */
-.topnav {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 64px;
-  z-index: 200;
-  background: rgba(0,0,0,0.75);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 40px;
-}
-
-.nav-logo {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 3px;
-  color: var(--white);
-  text-decoration: none;
-  text-transform: uppercase;
-}
-
-.nav-links {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.nav-links a {
-  display: inline-flex;
-  align-items: center;
-  height: 64px;
-  padding: 0 18px;
+  font-family: 'Inter', sans-serif;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--silver);
-  text-decoration: none;
-  letter-spacing: 0.02em;
-  border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s;
-  position: relative;
-  top: 1px;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
 }
 
-.nav-links a:hover {
-  color: var(--white);
-}
 
-.nav-links a.active {
-  color: var(--white);
-  border-bottom-color: var(--blue);
+/* ── Sidebar ── */
+.sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0; width: var(--sidebar-w); z-index: 200;
+  background: rgba(0,0,0,0.84); backdrop-filter: blur(32px); -webkit-backdrop-filter: blur(32px);
+  border-right: 1px solid rgba(255,255,255,0.055);
+  display: flex; flex-direction: column; transition: width 0.25s cubic-bezier(0.4,0,0.2,1); overflow: hidden;
 }
+.sidebar.collapsed { width: var(--sidebar-col); }
+.sidebar-logo {
+  height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 20px;
+  border-bottom: 1px solid rgba(255,255,255,0.05); flex-shrink: 0; overflow: hidden; white-space: nowrap;
+}
+.sidebar-logo-mark {
+  width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+  background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; color: #fff; box-shadow: 0 0 16px rgba(37,99,235,0.4);
+}
+.sidebar-logo-text { font-size: 14px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--white); transition: opacity 0.2s; }
+.sidebar.collapsed .sidebar-logo-text { opacity: 0; pointer-events: none; }
+.sidebar-nav { flex: 1; padding: 12px 0; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.nav-item {
+  display: flex; align-items: center; gap: 12px; padding: 10px 20px;
+  color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 500;
+  border-left: 2px solid transparent; white-space: nowrap; overflow: hidden;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.nav-item:hover { color: var(--silver); background: rgba(255,255,255,0.04); }
+.nav-item.active { color: var(--white); background: rgba(37,99,235,0.1); border-left-color: #2563eb; }
+.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.nav-label { font-size: 13px; font-weight: 500; transition: opacity 0.2s; letter-spacing: -0.01em; }
+.sidebar.collapsed .nav-label { opacity: 0; pointer-events: none; }
+.sidebar.collapsed .nav-item { padding: 10px 23px; }
+.nav-section-label {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: rgba(255,255,255,0.18); padding: 10px 22px 4px; white-space: nowrap; overflow: hidden; transition: opacity 0.2s;
+}
+.sidebar.collapsed .nav-section-label { opacity: 0; }
+.sidebar-toggle {
+  height: 52px; display: flex; align-items: center; padding: 0 20px;
+  border-top: 1px solid rgba(255,255,255,0.05); flex-shrink: 0;
+  cursor: pointer; color: var(--muted); gap: 12px; overflow: hidden; transition: color 0.15s;
+}
+.sidebar-toggle:hover { color: var(--silver); }
+.sidebar-toggle svg { width: 18px; height: 18px; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.25s; }
+.sidebar.collapsed .sidebar-toggle svg { transform: rotate(180deg); }
+.sidebar-toggle-label { font-size: 12px; font-weight: 500; transition: opacity 0.2s; white-space: nowrap; }
+.sidebar.collapsed .sidebar-toggle-label { opacity: 0; pointer-events: none; }
 
 /* ── Page wrapper ── */
 .page {
-  position: relative;
-  z-index: 1;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 104px 40px 60px;
+  position: relative; z-index: 1;
+  margin-left: var(--sidebar-w);
+  padding: 40px 40px 60px;
+  transition: margin-left 0.25s cubic-bezier(0.4,0,0.2,1);
 }
+.page.collapsed { margin-left: var(--sidebar-col); }
 
 /* ── Page hero ── */
 .page-hero {
@@ -505,22 +495,28 @@ tbody tr:last-child td { border-bottom: none; }
 </head>
 <body>
 
-<!-- Stars -->
-<div id="stars"></div>
 
-<!-- Top Nav -->
-<nav class="topnav">
-  <a class="nav-logo" href="/">QUANTEX</a>
-  <div class="nav-links">
-    <a href="/">Dashboard</a>
-    <a href="/backtest" class="active">Backtest</a>
-    <a href="/polymarket">Polymarket</a>
-    <a href="/hybrid">Hybrid</a>
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="sidebar-logo-mark">Q</div>
+    <span class="sidebar-logo-text">QUANTEX</span>
   </div>
-</nav>
+  <nav class="sidebar-nav">
+    <div class="nav-section-label">Monitor</div>
+    <a class="nav-item" href="/"><svg viewBox="0 0 20 20"><rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/><rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/></svg><span class="nav-label">Dashboard</span></a>
+    <a class="nav-item" href="/hybrid"><svg viewBox="0 0 20 20"><polyline points="2,13 5,8 8,11 11,4 14,9 17,6"/></svg><span class="nav-label">Hybrid Monitor</span></a>
+    <div class="nav-section-label">Análise</div>
+    <a class="nav-item active" href="/backtest"><svg viewBox="0 0 20 20"><rect x="2" y="12" width="3" height="6" rx="1"/><rect x="7" y="7" width="3" height="11" rx="1"/><rect x="12" y="9" width="3" height="9" rx="1"/><rect x="17" y="3" width="1" height="15" rx="0.5"/></svg><span class="nav-label">Backtest HL</span></a>
+    <a class="nav-item" href="/polymarket"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5"/><circle cx="10" cy="10" r="3.5"/><line x1="10" y1="2.5" x2="10" y2="17.5"/><line x1="2.5" y1="10" x2="17.5" y2="10"/></svg><span class="nav-label">Polymarket</span></a>
+  </nav>
+  <div class="sidebar-toggle" id="sidebar-toggle">
+    <svg viewBox="0 0 20 20"><polyline points="13,5 7,10 13,15"/></svg>
+    <span class="sidebar-toggle-label">Recolher</span>
+  </div>
+</aside>
 
 <!-- Page -->
-<div class="page">
+<div class="page" id="page-main">
 
   <!-- Hero -->
   <div class="page-hero">
@@ -664,13 +660,14 @@ tbody tr:last-child td { border-bottom: none; }
       `${Math.random()*100}vw ${Math.random()*100}vh 0 0 rgba(255,255,255,${(Math.random()*0.4+0.1).toFixed(2)})`
     ).join(',');
   }
-  document.getElementById('stars').style.boxShadow = makeStars(180);
+  // neural background
+  document.getElementById('sidebar-toggle').addEventListener('click',()=>{document.getElementById('sidebar').classList.toggle('collapsed');document.getElementById('page-main').classList.toggle('collapsed');});
 })();
 
 // Chart defaults
 const TICK_COLOR = 'rgba(255,255,255,0.3)';
 const GRID_COLOR = 'rgba(255,255,255,0.05)';
-const FONT_FAMILY = "'Space Grotesk', sans-serif";
+const FONT_FAMILY = "'Inter', sans-serif";
 
 fetch('/api/backtest').then(r => r.json()).then(d => {
 
