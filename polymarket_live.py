@@ -536,7 +536,7 @@ def _get_closed_positions(address, max_pages=3):
     return all_pos
 
 
-def _analyze_wallets(leaderboard_limit=80, n=TOP_WALLETS_N):
+def _analyze_wallets(leaderboard_limit=300, n=TOP_WALLETS_N):
     """
     Busca top wallets do leaderboard, analisa histórico de posições fechadas,
     calcula EQ e WR reais e popula wallet_eq_cache / wallet_wr_cache.
@@ -625,7 +625,7 @@ def _analyze_wallets(leaderboard_limit=80, n=TOP_WALLETS_N):
 
 def fetch_top_wallets(n=TOP_WALLETS_N):
     """Analisa o leaderboard e atualiza tracked_wallets. Sempre re-analisa."""
-    return _analyze_wallets(leaderboard_limit=150, n=n)
+    return _analyze_wallets(leaderboard_limit=300, n=n)
 
 
 def fetch_wallet_positions(address: str):
