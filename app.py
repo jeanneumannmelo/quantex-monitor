@@ -336,6 +336,13 @@ def preload():
 
 # ── Flask routes ──────────────────────────────────────────────────────────────
 
+@app.after_request
+def no_cache(resp):
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"]        = "no-cache"
+    resp.headers["Expires"]       = "0"
+    return resp
+
 @app.route("/")
 def index():
     return render_template("index.html")
