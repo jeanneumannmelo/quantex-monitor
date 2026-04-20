@@ -150,7 +150,7 @@ def api_pm_state():
 
 @app.route("/api/pm/wallets")
 def api_pm_wallets():
-    wallets = pm_live.fetch_top_wallets(20)
+    wallets = pm_live.pm_state.get("tracked_wallets", [])
     return jsonify(wallets)
 
 
