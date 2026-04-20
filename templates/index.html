@@ -1031,50 +1031,97 @@ socket.on('state', (data) => {
 socket.on('feed', (item) => {
   let html      = '';
   let typeClass = '';
-
-  html += `<span class="feed-ts">${item.ts}</span>`;
-  html += `<span class="feed-trader">[${item.trader}]</span>`;
-  html += `<span class="feed-body">`;
+  const px = item.px ? '$' + parseFloat(item.px).toLocaleString('en-US', {maximumFractionDigits: 2}) : '';
 
   if (item.type === 'copy') {
+    // Copiamos uma entrada de trader
+    const direcao = item.side === 'LONG' ? 'COMPRA' : 'VENDA';
+    const corDir  = item.side === 'LONG' ? 'var(--green)' : 'var(--red)';
     typeClass = 'type-copy';
-    html += `<span class="feed-copy">COPY ${item.side}</span> `;
-    html += `<span class="feed-coin">${item.coin}</span> `;
-    html += `@ <span class="feed-price">$${parseFloat(item.px).toLocaleString()}</span> `;
-    html += `alloc: <span class="feed-pnl-pos">$${item.alloc}</span>`;
+    html = `
+      <span class="feed-ts">${item.ts}</span>
+      <span class="feed-body">
+        <span style="color:var(--blue);font-weight:700">Copiando</span>
+        <span class="feed-trader">${item.trader}</span>
+        <span style="color:var(--muted)">·</span>
+        <span style="color:${corDir};font-weight:700">${direcao}</span>
+        <span class="feed-coin">${item.coin}</span>
+        <span style="color:var(--muted)">por</span>
+        <span class="feed-price">${px}</span>
+        <span style="color:var(--muted)">· alocado</span>
+        <span class="feed-pnl-pos">$${item.alloc}</span>
+      </span>`;
 
   } else if (item.dir && item.dir.includes('Open')) {
+    // Trader abriu posição — apenas monitorando, não copiamos
     const isLong  = item.dir.includes('Long');
     typeClass     = isLong ? 'type-open-long' : 'type-open-short';
-    const cls     = isLong ? 'feed-open-long' : 'feed-open-short';
-    const icon    = isLong ? '▲' : '▼';
-    html += `<span class="${cls}">${icon} ${item.dir}</span> `;
-    html += `<span class="feed-coin">${item.coin}</span> `;
-    html += `@ <span class="feed-price">$${parseFloat(item.px).toLocaleString()}</span>`;
+    const direcao = isLong ? 'COMPRA' : 'VENDA';
+    const corDir  = isLong ? 'var(--green)' : 'var(--red)';
+    html = `
+      <span class="feed-ts">${item.ts}</span>
+      <span class="feed-body">
+        <span class="feed-trader">${item.trader}</span>
+        <span style="color:var(--muted)">abriu</span>
+        <span style="color:${corDir};font-weight:600">${direcao}</span>
+        <span style="color:var(--muted)">em</span>
+        <span class="feed-coin">${item.coin}</span>
+        <span style="color:var(--muted)">·</span>
+        <span class="feed-price">${px}</span>
+      </span>`;
 
   } else if (item.dir && item.dir.includes('Close')) {
+    // Trader fechou posição
     typeClass = 'type-close';
-    const pnl = parseFloat(item.closed_pnl || 0);
-    const pnlHtml = pnl >= 0
-      ? `<span class="feed-pnl-pos">+$${pnl.toFixed(0)}</span>`
-      : `<span class="feed-pnl-neg">-$${Math.abs(pnl).toFixed(0)}</span>`;
-    html += `<span class="feed-close-lbl">◀ ${item.dir}</span> `;
-    html += `<span class="feed-coin">${item.coin}</span> `;
-    html += `@ <span class="feed-price">$${parseFloat(item.px).toLocaleString()}</span> `;
-    html += pnlHtml;
+    const pnl     = parseFloat(item.closed_pnl || 0);
+    const pnlStr  = pnl >= 0
+      ? `<span class="feed-pnl-pos">lucro +$${pnl.toFixed(0)}</span>`
+      : `<span class="feed-pnl-neg">perda -$${Math.abs(pnl).toFixed(0)}</span>`;
+    html = `
+      <span class="feed-ts">${item.ts}</span>
+      <span class="feed-body">
+        <span class="feed-trader">${item.trader}</span>
+        <span style="color:var(--muted)">fechou</span>
+        <span class="feed-coin">${item.coin}</span>
+        <span style="color:var(--muted)">·</span>
+        <span class="feed-price">${px}</span>
+        <span style="color:var(--muted)">·</span>
+        ${pnlStr}
+      </span>`;
 
   } else if (item.type === 'close_copy') {
+    // Nossa posição copiada foi fechada
     typeClass = 'type-close-copy';
     const pnl = parseFloat(item.pnl || 0);
-    html += `<span style="color:var(--purple);font-weight:600">◀ CLOSED COPY</span> `;
-    html += `<span class="feed-coin">${item.coin}</span> `;
-    html += pnl >= 0
-      ? `<span class="feed-pnl-pos">PnL +$${pnl.toFixed(2)}</span>`
-      : `<span class="feed-pnl-neg">PnL -$${Math.abs(pnl).toFixed(2)}</span>`;
+    const pnlStr = pnl >= 0
+      ? `<span class="feed-pnl-pos">+$${pnl.toFixed(2)}</span>`
+      : `<span class="feed-pnl-neg">-$${Math.abs(pnl).toFixed(2)}</span>`;
+    html = `
+      <span class="feed-ts">${item.ts}</span>
+      <span class="feed-body">
+        <span style="color:var(--purple);font-weight:700">Posição fechada</span>
+        <span class="feed-coin">${item.coin}</span>
+        <span style="color:var(--muted)">via</span>
+        <span class="feed-trader">${item.trader}</span>
+        <span style="color:var(--muted)">· resultado</span>
+        ${pnlStr}
+      </span>`;
+
+  } else if (item.trader && item.coin && item.px) {
+    // Evento genérico — atividade do trader
+    typeClass = 'type-close';
+    html = `
+      <span class="feed-ts">${item.ts}</span>
+      <span class="feed-body">
+        <span class="feed-trader">${item.trader}</span>
+        <span style="color:var(--muted)">ativo em</span>
+        <span class="feed-coin">${item.coin}</span>
+        <span style="color:var(--muted)">·</span>
+        <span class="feed-price">${px}</span>
+      </span>`;
   }
 
-  html += `</span>`;
-  addFeedItem(html, typeClass);
+  if (html) addFeedItem(html, typeClass);
 });
 </script>
 </body>
