@@ -24,6 +24,7 @@ from collections import defaultdict
 # ── Config ────────────────────────────────────────────────────────────────────
 STARTING_BAL       = 1000.0
 ALLOC_FIXED        = 80.0          # $80 fixo por trade (sem compounding)
+TAKER_FEE          = 0.02          # 2% Polymarket taker fee por lado (4% round trip)
 MAX_POSITIONS      = 5
 MIN_TRADES_WALLET  = 5             # mínimo de posições fechadas para ranquear
 TOP_WALLETS        = 15            # quantos wallets copiar
@@ -318,9 +319,11 @@ for op in all_ops:
     open_pos[key] = {**op, "alloc": alloc}
     equity_curve.append({"ts": op["ts"] * 1000, "bal": round(balance, 4)})
 
-    # Fechar imediatamente ao exit price do trader (simulação histórica)
-    pnl     = alloc * op["pnl_pct"] / 100
-    balance += alloc + pnl
+    # Fechar ao exit price do trader, descontando taxas de entrada e saída
+    gross_pnl = alloc * op["pnl_pct"] / 100
+    fee       = alloc * TAKER_FEE * 2  # 2% entrada + 2% saída
+    pnl       = gross_pnl - fee
+    balance  += alloc + pnl
     del open_pos[key]
 
     dt = datetime.fromtimestamp(op["ts"], tz=timezone.utc).strftime("%d/%m %H:%M")
@@ -332,6 +335,8 @@ for op in all_ops:
         "outcome":      op["outcome"],
         "entry":        op["entry"],
         "exit":         op["exit"],
+        "gross_pnl":    round(gross_pnl, 4),
+        "fee":          round(fee, 4),
         "pnl":          round(pnl, 4),
         "pnl_pct":      op["pnl_pct"],
         "exit_quality": op["exit_quality"],
@@ -368,8 +373,10 @@ for t in trades:
     pnl_by_wallet[t["wallet"]]   += t["pnl"]
     count_by_wallet[t["wallet"]] += 1
 
-best  = max(trades, key=lambda t: t["pnl"]) if trades else None
-worst = min(trades, key=lambda t: t["pnl"]) if trades else None
+best        = max(trades, key=lambda t: t["pnl"]) if trades else None
+worst       = min(trades, key=lambda t: t["pnl"]) if trades else None
+total_fees  = sum(t["fee"] for t in trades)
+total_gross = sum(t["gross_pnl"] for t in trades)
 
 # ── Categorização por esporte ─────────────────────────────────────────────────
 SPORT_PATTERNS = [
@@ -436,6 +443,9 @@ while cur <= end_dt:
 
 result = {
     "strategy":        "Polymarket Exit Quality Copy Trade — Sports Only" if SPORTS_ONLY else ("Polymarket Exit Quality Copy Trade — Crypto Only" if CRYPTO_ONLY else "Polymarket Exit Quality Copy Trade"),
+    "total_fees":      round(total_fees, 4),
+    "total_gross_pnl": round(total_gross, 4),
+    "taker_fee_pct":   TAKER_FEE * 100,
     "sport_pnl":       {k: {"pnl": round(v, 4), "trades": sport_count[k], "wins": sport_wins[k]} for k, v in sport_pnl.items()},
     "starting_bal":    STARTING_BAL,
     "final_bal":       round(balance, 4),
@@ -492,6 +502,9 @@ print(f"  PnL total:       {sign}${total_pnl:,.4f}  ({sign}{total_pnl_pct:.2f}%)
 print(f"  Win rate:        {result['win_rate']}%  ({wins}W / {losses}L)")
 print(f"  Trades:          {wins + losses}")
 print(f"  Max drawdown:    -{max_dd:.2f}%")
+print(f"  PnL bruto:       +${total_gross:.2f}")
+print(f"  Total taxas:     -${total_fees:.2f}  ({TAKER_FEE*100:.0f}% entrada + {TAKER_FEE*100:.0f}% saída por trade)")
+print(f"  PnL líquido:     +${total_pnl:.2f}  ← número real")
 if best:
     print(f"  Melhor trade:    {best['title'][:35]}  {'+' if best['pnl']>=0 else ''}{best['pnl']:.4f}")
 if worst:
