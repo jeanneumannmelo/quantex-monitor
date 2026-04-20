@@ -12,11 +12,24 @@ import hmac
 import base64
 import urllib.request
 import urllib.parse
+import logging
 from datetime import datetime, timezone
 from collections import deque
 
 from eth_account import Account
 from polymarket_cash import position_size, expected_exit_price, score_wallet
+
+# ── Logger ────────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+_log = logging.getLogger("pm_live")
+
+def _L(msg: str):
+    """Log com timestamp — aparece no Heroku logs e terminal local."""
+    _log.info(msg)
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 CLOB_API   = "https://clob.polymarket.com"
@@ -249,12 +262,12 @@ def init(sio, private_key: str):
         with pm_lock:
             pm_state["address"] = addr
 
-        print(f"  [PM] Endereço derivado: {addr}")
+        _L(f"[AUTH] Endereço derivado: {addr}")
 
         api_key, secret, passphrase = _load_saved_creds()
 
         if not api_key:
-            print("  [PM] Sem creds salvas — derivando via EIP-712…")
+            _L("[AUTH] Sem creds salvas — derivando via EIP-712…")
             api_key, secret, passphrase = _derive_api_creds()
 
         with pm_lock:
@@ -264,7 +277,7 @@ def init(sio, private_key: str):
             pm_state["connected"]      = bool(api_key)
 
         if api_key:
-            print(f"  [PM] Autenticado — API key: {api_key[:8]}…")
+            _L(f"[AUTH] ✓ Autenticado — API key: {api_key[:8]}…")
             _refresh_balance()
             with pm_lock:
                 bal = pm_state["usdc_balance"]
@@ -272,11 +285,11 @@ def init(sio, private_key: str):
                 pm_state["session_start"] = bal
             return True
         else:
-            print(f"  [PM] Auth retornou sem api_key — modo observação")
+            _L("[AUTH] Auth retornou sem api_key — modo observação")
             return False
 
     except Exception as e:
-        print(f"  [PM] Erro de auth: {e}")
+        _log.exception(f"[AUTH] Erro de auth: {e}")
         return False
 
 
@@ -293,9 +306,9 @@ def _refresh_balance():
             bal  = float(data.get("portfolioValue", data.get("usdcBalance", 0)))
         with pm_lock:
             pm_state["usdc_balance"] = bal
-        print(f"  [PM] Saldo USDC: ${bal:.2f}")
+        _L(f"[SALDO] USDC: ${bal:.2f}")
     except Exception as e:
-        print(f"  [PM] Erro ao buscar saldo: {e}")
+        _log.warning(f"[SALDO] Erro ao buscar saldo: {e}")
         try:
             addr = pm_state["address"]
             data = _get(f"{DATA_API}/profile?address={addr}")
@@ -399,7 +412,7 @@ def _refresh_live_positions():
             pm_state["unrealized_pnl"] = round(unrealized, 2)
 
     except Exception as e:
-        print(f"  [PM] Erro ao buscar posições: {e}")
+        _log.warning(f"[POS] Erro ao buscar posições: {e}")
 
 
 # ── Circuit Breakers ──────────────────────────────────────────────────────────
@@ -418,17 +431,17 @@ def _check_circuit_breakers() -> bool:
     if peak > 0 and (peak - bal) / peak >= CIRCUIT_BREAKER_DD:
         with pm_lock:
             pm_state["paused"] = True
-        print(f"  [PM] ⛔ Circuit breaker: drawdown {((peak-bal)/peak*100):.1f}% — pausado")
+        _L(f"[CB] ⛔ Circuit breaker: drawdown {((peak-bal)/peak*100):.1f}% — pausado")
         return False
 
     if start > 0 and daily / start >= MAX_DAILY_LOSS_PCT:
         with pm_lock:
             pm_state["paused"] = True
-        print(f"  [PM] ⛔ Circuit breaker: perda diária {(daily/start*100):.1f}% — pausado")
+        _L(f"[CB] ⛔ Circuit breaker: perda diária {(daily/start*100):.1f}% — pausado")
         return False
 
     if consec >= MAX_CONSECUTIVE_LOSS:
-        print(f"  [PM] ⛔ Circuit breaker: {consec} perdas consecutivas — cooldown 15min")
+        _L(f"[CB] ⛔ Circuit breaker: {consec} perdas consecutivas — cooldown 15min")
         time.sleep(900)
         with pm_lock:
             pm_state["consecutive_losses"] = 0
@@ -514,7 +527,7 @@ def _analyze_wallets(leaderboard_limit=80, n=TOP_WALLETS_N):
     Só retorna wallets que passam nos filtros MIN_EXIT_QUALITY e MIN_WIN_RATE.
     """
     import requests as _req
-    print(f"  [PM] Analisando wallets (buscando top {leaderboard_limit})...")
+    _L(f"[LB] Analisando wallets (buscando top {leaderboard_limit})...")
     try:
         r = _req.get(
             f"{DATA_API}/v1/leaderboard",
@@ -528,7 +541,7 @@ def _analyze_wallets(leaderboard_limit=80, n=TOP_WALLETS_N):
         if not isinstance(lb, list):
             return []
     except Exception as e:
-        print(f"  [PM] Leaderboard erro: {e}")
+        _log.warning(f"[LB] Leaderboard erro: {e}")
         return []
 
     qualified = []
@@ -539,7 +552,7 @@ def _analyze_wallets(leaderboard_limit=80, n=TOP_WALLETS_N):
         if not addr:
             continue
 
-        print(f"  [PM] [{i:02d}/{len(lb)}] {username[:24]:<24}", end="\r")
+        _L(f"[LB] [{i:02d}/{len(lb)}] Analisando {username[:28]}")
 
         positions = _get_closed_positions(addr)
         time.sleep(0.25)
@@ -581,17 +594,15 @@ def _analyze_wallets(leaderboard_limit=80, n=TOP_WALLETS_N):
             pm_state["wallet_eq_cache"][username] = round(avg_eq, 1)
             pm_state["wallet_wr_cache"][username] = round(win_rate / 100, 4)
 
-    print(f"  [PM] {' ' * 40}", end="\r")  # limpa linha de progresso
-
     qualified.sort(key=lambda x: -score_wallet(x))
     top = qualified[:n]
 
     with pm_lock:
         pm_state["tracked_wallets"] = top
 
-    print(f"  [PM] ✓ {len(top)} wallets qualificados (EQ≥{MIN_EXIT_QUALITY}% WR≥{MIN_WIN_RATE}%)")
+    _L(f"[LB] ✓ {len(top)} wallets qualificados (EQ≥{MIN_EXIT_QUALITY}% WR≥{MIN_WIN_RATE}%)")
     for w in top:
-        print(f"       {w['username'][:28]:<28}  EQ={w['avg_eq']:.0f}%  WR={w['win_rate']:.0f}%  trades={w['n_trades']}")
+        _L(f"[LB]   {w['username'][:28]:<28}  EQ={w['avg_eq']:.0f}%  WR={w['win_rate']:.0f}%  trades={w['n_trades']}")
 
     return top
 
@@ -701,7 +712,7 @@ def execute_copy_trade(condition_id: str, token_id: str, side: str, price: float
         live = [p for p in pm_state["live_positions"] if p.get("cur_price", 1) > ZOMBIE_MAX_PRICE]
         max_pos = _load_pm_cfg().get("max_positions", 5)
     if len(live) >= max_pos:
-        print(f"  [PM] Skip max_positions ({len(live)}/{max_pos}): {title[:35]}")
+        _L(f"[GATE] max_positions ({len(live)}/{max_pos}) — skip: {title[:45]}")
         return False
 
     try:
@@ -724,7 +735,7 @@ def execute_copy_trade(condition_id: str, token_id: str, side: str, price: float
         slippage_ratio = 1.0 - (remaining_move / total_move)
 
         if slippage_ratio > 0.30:
-            print(f"  [PM] Skip slippage: {slippage_ratio*100:.0f}% do movimento já foi em {title[:35]}")
+            _L(f"[SKIP] Slippage {slippage_ratio*100:.0f}% — {title[:45]}")
             return False
 
         slippage_factor = remaining_move / total_move
@@ -744,13 +755,13 @@ def execute_copy_trade(condition_id: str, token_id: str, side: str, price: float
 
         # Fix A gate: Kelly retornou 0 → EV negativo, não entrar
         if full_alloc == 0.0:
-            print(f"  [PM] Skip EV negativo: {title[:40]}")
+            _L(f"[SKIP] EV negativo (Kelly=0) — {title[:45]}")
             return False
 
         alloc = max(MIN_ALLOC, round(full_alloc * slippage_factor, 2))
 
         if alloc > bal:
-            print("  [PM] Saldo insuficiente para trade")
+            _L(f"[SKIP] Saldo insuficiente (alloc=${alloc:.2f} > bal=${bal:.2f})")
             return False
 
         client = _get_clob_client()
@@ -780,18 +791,18 @@ def execute_copy_trade(condition_id: str, token_id: str, side: str, price: float
                     "ts":             time.time(),
                 }
             _emit_feed(f"COPY {side}", title, price, alloc)
-            print(f"  [PM] ✓ {side} {title[:40]} ${alloc:.2f} (Kelly, WR={wr:.0%} adj={WR_BIAS_DISCOUNT:.0%}, EQ={eq:.0f}%, slip={slippage_ratio*100:.0f}%)")
+            _L(f"[TRADE] ✅ COPY {side}  ${alloc:.2f}  @{price:.3f}  WR={wr:.0%}(×{WR_BIAS_DISCOUNT})  EQ={eq:.0f}%  slip={slippage_ratio*100:.0f}%  | {title[:50]}")
             return True
         else:
-            print(f"  [PM] Ordem rejeitada: {resp}")
+            _L(f"[TRADE] ❌ Ordem rejeitada: {resp} | {title[:40]}")
             return False
 
     except Exception as e:
         err = str(e)
         if "does not exist" in err or "FOK" in err or "fully filled" in err:
-            pass  # mercado sem orderbook ou sem liquidez — skip silencioso
+            _L(f"[TRADE] sem liquidez/orderbook — {title[:40]}")
         else:
-            print(f"  [PM] Erro na ordem: {e}")
+            _log.warning(f"[TRADE] Erro na ordem: {e} | {title[:40]}")
         return False
 
 
@@ -855,10 +866,10 @@ def execute_exit_trade(condition_id: str):
         _update_peak_balance(pnl)
         sign = "+" if pnl >= 0 else ""
         _emit_feed("EXIT", pos["question"], cur_price, pnl)
-        print(f"  [PM] {'✓' if pnl>=0 else '✗'} EXIT {pos['question'][:40]}  {sign}${pnl:.2f}")
+        _L(f"[EXIT] {'✅' if pnl>=0 else '❌'}  {sign}${pnl:.2f}  @{cur_price:.3f}  | {pos['question'][:50]}")
 
     except Exception as e:
-        print(f"  [PM] Erro no exit: {e}")
+        _log.warning(f"[EXIT] Erro no exit: {e}")
 
 
 # ── Zombie cleanup ───────────────────────────────────────────────────────────
@@ -892,16 +903,14 @@ def _cleanup_zombie_positions():
 
         # FAST: mercado resolveu contra (preço ~0) — fechar imediatamente após 2h
         if cur_price <= ZOMBIE_MAX_PRICE and age_hours >= 2.0:
-            print(f"  [PM] 🧟 Fast-zombie: {pos['question'][:40]} "
-                  f"(age={age_hours:.1f}h, price={cur_price:.4f}) → fechando")
+            _L(f"[ZOMBIE] Fast: age={age_hours:.1f}h price={cur_price:.4f} → {pos['question'][:45]}")
             execute_exit_trade(cid)
             continue
 
         # SLOW: posição velha, trader saiu, preço baixo
         age_days = age_hours / 24
         if age_days >= ZOMBIE_MAX_DAYS and cid not in all_trader_ids and cur_price <= ZOMBIE_MAX_PRICE:
-            print(f"  [PM] 🧟 Slow-zombie: {pos['question'][:40]} "
-                  f"(age={age_days:.1f}d, price={cur_price:.3f}) → fechando")
+            _L(f"[ZOMBIE] Slow: age={age_days:.1f}d price={cur_price:.3f} → {pos['question'][:45]}")
             execute_exit_trade(cid)
 
 
@@ -929,7 +938,7 @@ def _check_wallet(wallet: dict):
         with pm_lock:
             has_pos = cid in pm_state["positions"]
         if has_pos:
-            print(f"  [PM] {wallet['username']} saiu de {cid[:12]}… → fechando cópia")
+            _L(f"[MIRROR] {wallet['username']} saiu de {cid[:12]}… → fechando cópia")
             execute_exit_trade(cid)
 
     # Entry mirroring: novas posições do trader
@@ -961,6 +970,7 @@ def _check_wallet(wallet: dict):
             with pm_lock:
                 pm_state["known_positions"].add(cid)
                 pm_state["wallet_entry_cache"][cid] = wallet_avg_entry
+            _L(f"[SIGNAL] {wallet['username']} | @{price:.3f} | entry_trader={wallet_avg_entry:.3f} | {title[:50]}")
             _emit_feed(f"📡 {wallet['username']}", title, price, 0)
             execute_copy_trade(cid, token, side, price, title, wallet["username"])
 
@@ -968,18 +978,18 @@ def _check_wallet(wallet: dict):
 def _wallet_watcher(wallet: dict):
     """Thread dedicada por wallet — polling a cada POLL_INTERVAL segundos."""
     name = wallet["username"]
-    print(f"  [PM] Watcher iniciado: {name}")
+    _L(f"[WATCH] Thread iniciada: {name}")
     while True:
         try:
             _check_wallet(wallet)
         except Exception as e:
-            print(f"  [PM] Watcher {name} erro: {e}")
+            _log.warning(f"[WATCH] {name} erro: {e}")
         time.sleep(POLL_INTERVAL)
 
 
 def _poller():
     """Thread principal: inicializa watchers e refresha a lista periodicamente."""
-    print("  [PM] Poller iniciado")
+    _L("[POLLER] Iniciando — buscando wallets e posições...")
     fetch_top_wallets()
     _spawn_watchers()
     _refresh_balance()
@@ -1008,7 +1018,7 @@ def _poller():
                 last_lb_refresh = time.time()
 
         except Exception as e:
-            print(f"  [PM] Poller erro: {e}")
+            _log.warning(f"[POLLER] Erro: {e}")
 
 
 def _spawn_watchers():
@@ -1025,7 +1035,7 @@ def _spawn_watchers():
                              name=f"pm-watch-{w['username'][:12]}")
         t.start()
         _wallet_threads[addr] = t
-        print(f"  [PM] Thread iniciada: {w['username']}")
+        _L(f"[WATCH] Spawn: {w['username']}")
 
 
 # ── Emissão Socket.IO ─────────────────────────────────────────────────────────

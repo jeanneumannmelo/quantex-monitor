@@ -5,28 +5,76 @@ Flask + SocketIO backend (Polymarket only)
 """
 
 import json
+import os
 import time
 import threading
+import logging
 
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
 import polymarket_live as pm_live
 
-# ── Config ────────────────────────────────────────────────────────────────────
-CONFIG_PATH = "/Users/mac/matrix_dashboard/config.json"
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("quantex")
 
-def load_config():
-    import os
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH) as f:
-            return json.load(f)
-    return {
-        "pm_private_key": "", "pm_address": "",
-        "starting_balance": 2000.0,
+# ── Config ────────────────────────────────────────────────────────────────────
+CONFIG_PATH = os.environ.get("CONFIG_PATH", "/Users/mac/matrix_dashboard/config.json")
+
+def load_config() -> dict:
+    """
+    Carrega configuração: prioridade env vars (Heroku) > config.json (local).
+    Env vars usam o prefixo PM_ e STARTING_BALANCE.
+    """
+    base: dict = {
+        "pm_private_key": "", "pm_address": "", "pm_funder": "",
+        "pm_sig_type": 1, "pm_api_key": "", "pm_api_secret": "", "pm_api_pass": "",
+        "starting_balance": 2000.0, "strategies": {},
     }
 
+    # 1) Tenta carregar config.json
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH) as f:
+                base.update(json.load(f))
+        except Exception as e:
+            log.warning(f"Não foi possível ler config.json: {e}")
+
+    # 2) Env vars sobrescrevem (útil no Heroku)
+    env_map = {
+        "PM_PRIVATE_KEY":  "pm_private_key",
+        "PM_ADDRESS":      "pm_address",
+        "PM_FUNDER":       "pm_funder",
+        "PM_SIG_TYPE":     "pm_sig_type",
+        "PM_API_KEY":      "pm_api_key",
+        "PM_API_SECRET":   "pm_api_secret",
+        "PM_API_PASS":     "pm_api_pass",
+        "STARTING_BALANCE":"starting_balance",
+    }
+    for env_key, cfg_key in env_map.items():
+        val = os.environ.get(env_key)
+        if val:
+            base[cfg_key] = int(val) if cfg_key == "pm_sig_type" else \
+                            float(val) if cfg_key == "starting_balance" else val
+
+    return base
+
+
+def save_config(cfg: dict):
+    """Salva config.json se o filesystem estiver disponível (local), ignora no Heroku."""
+    try:
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(cfg, f, indent=2)
+    except Exception as e:
+        log.warning(f"Não foi possível salvar config.json (Heroku?): {e}")
+
+
 app = Flask(__name__)
-sio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
+sio = SocketIO(app, cors_allowed_origins="*", async_mode="gevent")
 
 
 # ── State broadcaster ─────────────────────────────────────────────────────────
@@ -34,8 +82,8 @@ def state_broadcaster():
     while True:
         try:
             sio.emit("pm_state", pm_live.get_pm_state())
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug(f"state_broadcaster erro: {e}")
         time.sleep(1)
 
 
@@ -74,9 +122,9 @@ def api_config():
         cfg.setdefault("strategies", {})
         if "pm" in data["strategies"]:
             cfg["strategies"].setdefault("pm", {}).update(data["strategies"]["pm"])
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f, indent=2)
+    save_config(cfg)
     pm_live._init_constants()
+    log.info("Config atualizado e parâmetros recarregados")
     return jsonify({"ok": True})
 
 
@@ -111,20 +159,31 @@ def api_pm_connect():
         return jsonify({"error": "private_key obrigatório"}), 400
     cfg = load_config()
     cfg["pm_private_key"] = key
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f, indent=2)
+    save_config(cfg)
     ok = pm_live.init(sio, key)
     return jsonify({"connected": ok, "state": pm_live.get_pm_state()})
 
 
 @app.route("/api/polymarket-backtest")
 def api_polymarket_backtest():
-    import os
     path = "/tmp/polymarket_backtest.json"
     if not os.path.exists(path):
         return jsonify({"error": "rode python3 polymarket_backtest.py primeiro"}), 404
     with open(path) as f:
         return jsonify(json.load(f))
+
+
+@app.route("/health")
+def health():
+    """Health check para Heroku / uptime monitors."""
+    state = pm_live.get_pm_state()
+    return jsonify({
+        "ok":        True,
+        "connected": state.get("connected", False),
+        "balance":   state.get("balance", 0),
+        "positions": len(state.get("live_positions", [])),
+        "copies":    state.get("copies", 0),
+    })
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -135,7 +194,8 @@ if __name__ == "__main__":
     pm_key = cfg.get("pm_private_key", "")
     pm_live.start_pm_live(sio, pm_key)
 
-    print("\n  ▓▓▓  QUANTEX — Polymarket Copy Trader  ▓▓▓")
-    print("  Dashboard: http://localhost:5000\n")
+    port = int(os.environ.get("PORT", 5000))
+    log.info(f"▓▓▓  QUANTEX — Polymarket Copy Trader  ▓▓▓")
+    log.info(f"Dashboard: http://localhost:{port}")
 
-    sio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)
+    sio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)
