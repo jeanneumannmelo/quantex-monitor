@@ -999,19 +999,23 @@ def _cleanup_zombie_positions():
             _L(f"[ZOMBIE] Slow: age={age_days:.1f}d price={cur_price:.3f} → {pos['question'][:45]}")
             execute_exit_trade(cid)
 
-    # RESOLVED: posições com end_date já passado há mais de 24h (mercado encerrado)
+    # RESOLVED: posições com end_date já passado há mais de 24h E preço resolvido (≤0.05 ou ≥0.95)
+    # Ignorar end_date se preço ainda está no meio — dado de end_date da API pode ser incorreto
     for lp in live_pos:
-        cid      = lp.get("condition_id", "")
-        end_date = lp.get("end_date", "")
+        cid       = lp.get("condition_id", "")
+        end_date  = lp.get("end_date", "")
+        cur_price = lp.get("cur_price", 0.5)
         if not cid or not end_date or end_date == "—":
             continue
+        if not (cur_price <= 0.05 or cur_price >= 0.95):
+            continue  # mercado ainda ativo — end_date da API pode estar errado
         try:
             end_ts = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
         except Exception:
             continue
         age_past_end_hours = (now - end_ts) / 3600
         if age_past_end_hours >= 24:
-            _L(f"[ZOMBIE] Resolvido: end={end_date} passado {age_past_end_hours:.0f}h → {lp.get('title','')[:45]}")
+            _L(f"[ZOMBIE] Resolvido: end={end_date} passado {age_past_end_hours:.0f}h price={cur_price:.3f} → {lp.get('title','')[:45]}")
             execute_exit_trade(cid)
 
 
