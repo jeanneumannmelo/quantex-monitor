@@ -1065,8 +1065,23 @@ def _check_wallet(wallet: dict):
     }
 
     with pm_lock:
+        is_first_scan = addr not in pm_state["wallet_positions"]
         prev_ids = pm_state["wallet_positions"].get(addr, set())
         pm_state["wallet_positions"][addr] = current_ids
+
+    # Primeira varredura: registrar posições existentes como conhecidas sem copiar.
+    # Evita entradas atrasadas em posições que o trader já tinha antes do bot subir.
+    if is_first_scan:
+        with pm_lock:
+            for pos in positions:
+                cid = pos.get("conditionId") or pos.get("market", "")
+                if cid:
+                    pm_state["known_positions"].add(cid)
+                    pm_state["wallet_entry_cache"][cid] = float(
+                        pos.get("avgPrice") or pos.get("price", 0.5)
+                    )
+        _L(f"[WATCH] {wallet['username']} warmup: {len(current_ids)} posições registradas (sem copiar)")
+        return
 
     # Exit mirroring: trader saiu dessas posições
     exited_ids = prev_ids - current_ids
@@ -1097,15 +1112,14 @@ def _check_wallet(wallet: dict):
         if end_ts > 0 and (end_ts - time.time()) < MIN_HOURS_TO_RESOLVE * 3600:
             continue
 
+        wallet_avg_entry = float(pos.get("avgPrice") or pos.get("price", price))
         with pm_lock:
             already = cid in pm_state["known_positions"]
-
-        if not already:
-            # Fix B: cache da entrada real do trader para cálculo de slippage
-            wallet_avg_entry = float(pos.get("avgPrice") or pos.get("price", price))
-            with pm_lock:
+            if not already:
                 pm_state["known_positions"].add(cid)
                 pm_state["wallet_entry_cache"][cid] = wallet_avg_entry
+
+        if not already:
             _L(f"[SIGNAL] {wallet['username']} | @{price:.3f} | entry_trader={wallet_avg_entry:.3f} | {title[:50]}")
             _emit_feed(f"📡 {wallet['username']}", title, price, 0)
             execute_copy_trade(cid, token, side, price, title, wallet["username"])
