@@ -816,6 +816,21 @@ def execute_copy_trade(condition_id: str, token_id: str, side: str, price: float
             _L(f"[GATE] exposure ${total_invested+alloc:.0f}/${max_exposure:.0f} ({total_invested/bal*100:.0f}% usado) — skip: {title[:45]}")
             return False
 
+        # Pular mercados neg-risk (spreads esportivos) — usam AMM, não CLOB
+        if not token_id:
+            _L(f"[SKIP] token_id vazio — {title[:45]}")
+            return False
+        try:
+            import requests as _req
+            nr = _req.get(f"{CLOB_API}/neg-risk",
+                          params={"token_id": token_id},
+                          headers={"User-Agent": "Mozilla/5.0"}, timeout=5).json()
+            if nr.get("neg_risk") is True:
+                _L(f"[SKIP] neg-risk market (AMM) — {title[:45]}")
+                return False
+        except Exception:
+            pass
+
         client = _get_clob_client()
 
         order = client.create_market_order(MarketOrderArgs(
@@ -853,6 +868,8 @@ def execute_copy_trade(condition_id: str, token_id: str, side: str, price: float
         err = str(e)
         if "does not exist" in err or "FOK" in err or "fully filled" in err:
             _L(f"[TRADE] sem liquidez/orderbook — {title[:40]}")
+        elif "owner" in err.lower() or "api key" in err.lower():
+            _log.warning(f"[TRADE] Erro de autenticação: endereço/API key incompatíveis — {err[:120]}")
         else:
             _log.warning(f"[TRADE] Erro na ordem: {e} | {title[:40]}")
         return False
