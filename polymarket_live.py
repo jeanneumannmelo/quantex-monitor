@@ -408,22 +408,38 @@ def _refresh_live_positions():
             pnl_pct = (cur - entry) / entry * 100 if entry > 0 else 0
             unrealized += cash_pnl
 
+            cid      = p.get("conditionId", "")
+            asset    = str(p.get("asset") or p.get("tokenId") or p.get("tokenID") or "")
             pos_data = {
-                "title":       title[:55],
-                "outcome":     outcome,
-                "entry":       round(entry, 3),
-                "cur_price":   round(cur, 3),
-                "invested":    round(invested, 2),
-                "cur_value":   round(cur_val, 2),
-                "pnl":         round(cash_pnl, 2),
-                "pnl_pct":     round(pnl_pct, 1),
-                "end_date":    end_date[:10] if end_date else "—",
-                "condition_id": p.get("conditionId", ""),
+                "title":        title[:55],
+                "outcome":      outcome,
+                "entry":        round(entry, 3),
+                "cur_price":    round(cur, 3),
+                "invested":     round(invested, 2),
+                "cur_value":    round(cur_val, 2),
+                "pnl":          round(cash_pnl, 2),
+                "pnl_pct":      round(pnl_pct, 1),
+                "end_date":     end_date[:10] if end_date else "—",
+                "condition_id": cid,
+                "token_id":     asset,
             }
             risk = _compute_pm_risk(pos_data, pm_state.get("usdc_balance", 1))
             pos_data["risk_score"] = risk["risk_score"]
             pos_data["risk_level"] = risk["risk_level"]
             positions.append(pos_data)
+
+            # Registrar posição para stop loss/TP mesmo após restart
+            if cid and asset and cid not in pm_state["positions"]:
+                pm_state["positions"][cid] = {
+                    "condition_id": cid,
+                    "token_id":     asset,
+                    "question":     title[:55],
+                    "side":         "BUY",
+                    "entry_price":  round(entry, 3),
+                    "size_usd":     round(invested, 2),
+                    "wallet":       "",
+                    "ts":           time.time(),
+                }
 
         with pm_lock:
             pm_state["live_positions"] = positions
