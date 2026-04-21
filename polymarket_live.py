@@ -678,6 +678,7 @@ def _get_market_end_date(condition_id: str) -> float:
     if condition_id in _market_end_cache:
         return _market_end_cache[condition_id]
     try:
+        import requests as _req
         r = _req.get(
             "https://gamma-api.polymarket.com/markets",
             params={"conditionIds": condition_id},
